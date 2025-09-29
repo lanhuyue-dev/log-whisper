@@ -1,0 +1,24 @@
+{
+  "build": {
+    "beforeDevCommand": "",
+    "beforeBuildCommand": "",
+    "frontendDist": "../src"
+  },
+  "package": {
+    "productName": "LogWhisper",
+    "version": "1.0.0"
+  },
+  "tauri": {
+    "bundle": {
+      "identifier": "com.logwhisper.app"
+    },
+    "windows": [
+      {
+        "title": "LogWhisper",
+        "width": 1200,
+        "height": 800
+      }
+    ]
+  },
+  "plugins": {}
+}

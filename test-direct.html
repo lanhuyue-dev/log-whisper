@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LogWhisper 直接测试</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .container { max-width: 600px; margin: 0 auto; }
+        button { padding: 10px 20px; margin: 5px; background: #2196f3; color: white; border: none; border-radius: 5px; cursor: pointer; }
+        .status { margin: 10px 0; padding: 10px; border-radius: 5px; }
+        .success { background: #e8f5e8; color: #2e7d32; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>LogWhisper 直接测试</h1>
+        <button onclick="testLog()">测试日志</button>
+        <button onclick="testTauri()">测试Tauri</button>
+        <div id="status"></div>
+    </div>
+
+    <script>
+        function showStatus(message) {
+            document.getElementById('status').innerHTML = '<div class="status success">' + message + '</div>';
+        }
+
+        function testLog() {
+            console.log('测试日志输出');
+            showStatus('日志已输出到控制台');
+        }
+
+        function testTauri() {
+            if (window.__TAURI__) {
+                showStatus('Tauri API 可用');
+                // 测试写入日志
+                window.__TAURI__.invoke('write_log', { 
+                    content: '测试日志内容\n',
+                    append: true 
+                }).then(function(response) {
+                    showStatus('日志写入成功: ' + JSON.stringify(response));
+                }).catch(function(error) {
+                    showStatus('日志写入失败: ' + error);
+                });
+            } else {
+                showStatus('Tauri API 不可用');
+            }
+        }
+
+        // 页面加载时测试
+        window.onload = function() {
+            console.log('页面加载完成');
+            if (window.__TAURI__) {
+                showStatus('Tauri API 可用，可以测试日志功能');
+            } else {
+                showStatus('Tauri API 不可用，请确保应用正常启动');
+            }
+        };
+    </script>
+</body>
+</html>

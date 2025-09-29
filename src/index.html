@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LogWhisper</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body class="bg-gray-50">
+    <div id="app" class="h-screen flex flex-col">
+        <!-- 顶部工具栏 -->
+        <div class="bg-white shadow-sm border-b p-4" style="background-color: var(--bg-header); border-color: var(--border-primary);">
+            <div class="flex items-center space-x-4">
+                <button id="openFileBtn" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition-colors" 
+                        style="background-color: var(--color-primary); color: var(--text-inverse);">
+                    📁 选择文件
+                </button>
+                <div class="flex-1">
+                    <input type="file" id="fileInput" accept=".log,.txt" class="hidden">
+                </div>
+                <select id="pluginSelect" class="border rounded px-3 py-2 bg-white" 
+                        style="border-color: var(--border-primary); background-color: var(--bg-content); color: var(--text-primary);">
+                    <option value="auto">Auto</option>
+                    <option value="mybatis">MyBatis</option>
+                    <option value="json">JSON</option>
+                    <option value="raw">Raw</option>
+                </select>
+                <input type="text" id="searchInput" placeholder="搜索日志..." 
+                       class="border rounded px-3 py-2 w-64 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                       style="border-color: var(--border-primary); background-color: var(--bg-content); color: var(--text-primary);">
+                <button id="clearSearchBtn" class="text-gray-500 hover:text-gray-700 px-2 py-1"
+                        style="color: var(--text-tertiary);">
+                    ✕
+                </button>
+                <!-- 主题切换按钮 -->
+                <button id="themeToggleBtn" class="px-3 py-2 rounded border transition-colors"
+                        style="border-color: var(--border-primary); background-color: var(--bg-content); color: var(--text-primary);">
+                    <span id="themeIcon">🌙</span>
+                </button>
+            </div>
+        </div>
+        
+        <!-- 主内容区域 -->
+        <div class="flex-1 flex">
+            <!-- 左侧：原始日志 -->
+            <div class="w-1/2 border-r bg-white" style="background-color: var(--bg-sidebar); border-color: var(--border-primary);">
+                <div class="p-4 border-b bg-gray-50" style="background-color: var(--bg-secondary); border-color: var(--border-primary);">
+                    <h3 class="font-semibold text-gray-700" style="color: var(--text-primary);">原始日志</h3>
+                </div>
+                <div id="originalLog" class="p-4 font-mono text-sm overflow-auto h-full" style="background-color: var(--bg-content); color: var(--text-primary);">
+                    <div class="text-gray-500 text-center py-8" style="color: var(--text-secondary);">
+                        <div class="text-4xl mb-4">📄</div>
+                        <p>拖拽日志文件到此处或点击"选择文件"</p>
+                        <p class="text-sm mt-2">支持 .log 和 .txt 文件</p>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 右侧：解析结果 -->
+            <div class="w-1/2 bg-white" style="background-color: var(--bg-content);">
+                <div class="p-4 border-b bg-gray-50" style="background-color: var(--bg-secondary); border-color: var(--border-primary);">
+                    <h3 class="font-semibold text-gray-700" style="color: var(--text-primary);">解析结果</h3>
+                </div>
+                <div id="parsedLog" class="p-4 overflow-auto h-full" style="background-color: var(--bg-content); color: var(--text-primary);">
+                    <div class="text-gray-500 text-center py-8" style="color: var(--text-secondary);">
+                        <div class="text-4xl mb-4">🔍</div>
+                        <p>选择文件后将显示解析结果</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 底部状态栏 -->
+        <div class="bg-gray-100 border-t px-4 py-2 text-sm text-gray-600 flex justify-between items-center"
+             style="background-color: var(--bg-secondary); border-color: var(--border-primary); color: var(--text-secondary);">
+            <span id="statusText">就绪</span>
+            <div class="flex items-center space-x-4">
+                <span id="fileInfo" class="text-xs" style="color: var(--text-tertiary);"></span>
+                <span id="parseStats" class="text-xs" style="color: var(--text-tertiary);"></span>
+                <!-- 开发调试按钮 -->
+                <button id="debugToggleBtn" class="text-xs px-2 py-1 rounded border transition-colors"
+                        style="border-color: var(--border-primary); background-color: var(--bg-content); color: var(--text-primary);">
+                    🐛 调试
+                </button>
+                <!-- 性能优化按钮 -->
+                <button id="performanceToggleBtn" class="text-xs px-2 py-1 rounded border transition-colors"
+                        style="border-color: var(--border-primary); background-color: var(--bg-content); color: var(--text-primary);">
+                    ⚡ 性能
+                </button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 加载提示 -->
+    <div id="loadingOverlay" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
+        <div class="bg-white rounded-lg p-6 max-w-sm w-full mx-4">
+            <div class="flex items-center space-x-3">
+                <div class="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
+                <span id="loadingText">正在解析文件...</span>
+            </div>
+            <div class="mt-4">
+                <div class="w-full bg-gray-200 rounded-full h-2">
+                    <div id="progressBar" class="bg-blue-600 h-2 rounded-full transition-all duration-300" style="width: 0%"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Toast 提示 -->
+    <div id="toast" class="fixed top-4 right-4 bg-green-500 text-white px-4 py-2 rounded shadow-lg z-50 hidden">
+        <span id="toastMessage"></span>
+    </div>
+    
+    <!-- 调试面板 -->
+    <div id="debugPanel" class="fixed bottom-0 left-0 w-full h-64 bg-gray-900 text-white z-50 hidden"
+         style="background-color: var(--bg-primary); color: var(--text-primary); border-top: 1px solid var(--border-primary);">
+        <div class="flex justify-between items-center p-2 border-b" style="border-color: var(--border-primary);">
+            <h3 class="font-semibold">🐛 开发调试面板</h3>
+            <button id="debugCloseBtn" class="text-gray-400 hover:text-white">✕</button>
+        </div>
+        <div class="p-4 h-full overflow-auto">
+            <div class="grid grid-cols-2 gap-4 h-full">
+                <!-- 左侧：日志输出 -->
+                <div>
+                    <h4 class="font-semibold mb-2">📋 控制台日志</h4>
+                    <div id="debugLogs" class="bg-black text-green-400 p-2 rounded text-xs font-mono h-48 overflow-auto">
+                        <div class="text-gray-500">等待日志输出...</div>
+                    </div>
+                </div>
+                <!-- 右侧：性能统计 -->
+                <div>
+                    <h4 class="font-semibold mb-2">📊 性能统计</h4>
+                    <div id="debugStats" class="space-y-2">
+                        <div class="text-sm">
+                            <span class="text-gray-400">解析次数:</span>
+                            <span id="parseCount">0</span>
+                        </div>
+                        <div class="text-sm">
+                            <span class="text-gray-400">平均解析时间:</span>
+                            <span id="avgParseTime">0ms</span>
+                        </div>
+                        <div class="text-sm">
+                            <span class="text-gray-400">内存使用:</span>
+                            <span id="memoryUsage">0MB</span>
+                        </div>
+                        <div class="text-sm">
+                            <span class="text-gray-400">缓存命中率:</span>
+                            <span id="cacheHitRate">0%</span>
+                        </div>
+                    </div>
+                    <div class="mt-4">
+                        <h5 class="font-semibold mb-2">🔧 调试工具</h5>
+                        <div class="space-y-2">
+                            <button id="clearLogsBtn" class="w-full bg-red-600 hover:bg-red-700 text-white px-2 py-1 rounded text-xs">
+                                清空日志
+                            </button>
+                            <button id="exportLogsBtn" class="w-full bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded text-xs">
+                                导出日志
+                            </button>
+                            <button id="performanceTestBtn" class="w-full bg-green-600 hover:bg-green-700 text-white px-2 py-1 rounded text-xs">
+                                性能测试
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 性能优化面板 -->
+    <div id="performancePanel" class="fixed bottom-0 right-0 w-80 h-64 bg-gray-900 text-white z-50 hidden"
+         style="background-color: var(--bg-primary); color: var(--text-primary); border-top: 1px solid var(--border-primary); border-left: 1px solid var(--border-primary);">
+        <div class="flex justify-between items-center p-2 border-b" style="border-color: var(--border-primary);">
+            <h3 class="font-semibold">⚡ 性能优化面板</h3>
+            <button id="performanceCloseBtn" class="text-gray-400 hover:text-white">✕</button>
+        </div>
+        <div class="p-4 h-full overflow-auto">
+            <div class="space-y-4">
+                <!-- 虚拟滚动控制 -->
+                <div>
+                    <h4 class="font-semibold mb-2">🎯 虚拟滚动</h4>
+                    <div class="space-y-2">
+                        <label class="flex items-center">
+                            <input type="checkbox" id="virtualScrollEnabled" checked class="mr-2">
+                            <span class="text-sm">启用虚拟滚动</span>
+                        </label>
+                        <div class="text-sm">
+                            <span class="text-gray-400">可见项目:</span>
+                            <span id="visibleItems">0</span>
+                        </div>
+                        <div class="text-sm">
+                            <span class="text-gray-400">总项目:</span>
+                            <span id="totalItems">0</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 分块加载控制 -->
+                <div>
+                    <h4 class="font-semibold mb-2">📦 分块加载</h4>
+                    <div class="space-y-2">
+                        <label class="flex items-center">
+                            <input type="checkbox" id="chunkLoadingEnabled" checked class="mr-2">
+                            <span class="text-sm">启用分块加载</span>
+                        </label>
+                        <div class="text-sm">
+                            <span class="text-gray-400">块大小:</span>
+                            <input type="number" id="chunkSize" value="100" class="w-16 px-1 py-0.5 text-xs border rounded" style="border-color: var(--border-primary); background-color: var(--bg-content); color: var(--text-primary);">
+                        </div>
+                        <div class="text-sm">
+                            <span class="text-gray-400">已加载块:</span>
+                            <span id="loadedChunks">0</span> / <span id="totalChunks">0</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 内存优化 -->
+                <div>
+                    <h4 class="font-semibold mb-2">🧹 内存优化</h4>
+                    <div class="space-y-2">
+                        <button id="cleanupMemoryBtn" class="w-full bg-red-600 hover:bg-red-700 text-white px-2 py-1 rounded text-xs">
+                            清理内存
+                        </button>
+                        <div class="text-sm">
+                            <span class="text-gray-400">内存使用:</span>
+                            <span id="memoryUsage">0MB</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 性能指标 -->
+                <div>
+                    <h4 class="font-semibold mb-2">📊 性能指标</h4>
+                    <div class="space-y-1 text-xs">
+                        <div>解析次数: <span id="parseCount">0</span></div>
+                        <div>平均解析时间: <span id="avgParseTime">0ms</span></div>
+                        <div>缓存命中率: <span id="cacheHitRate">0%</span></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script src="main.js"></script>
+</body>
+</html>

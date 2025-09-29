@@ -94,15 +94,26 @@ class LogWhisperApp {
     
     setupEventListeners() {
         // 文件选择按钮
-        document.getElementById('openFileBtn').addEventListener('click', () => {
+        document.getElementById('openFileBtn').addEventListener('click', (e) => {
+            console.log('📁 文件选择按钮被点击');
+            this.debug('UI_OPERATION', '文件选择按钮被点击');
             document.getElementById('fileInput').click();
         });
         
         // 文件输入变化
         document.getElementById('fileInput').addEventListener('change', (e) => {
+            console.log('📁 文件输入变化事件触发');
+            this.debug('FILE_OPERATION', '文件输入变化事件触发');
             if (e.target.files.length > 0) {
                 this.handleFile(e.target.files[0]);
             }
+        });
+        
+        // 监听 fileInput 的 click 事件，追踪被谁触发
+        document.getElementById('fileInput').addEventListener('click', (e) => {
+            console.log('📁 fileInput click 事件被触发');
+            console.log('📁 调用堆栈:', new Error().stack);
+            this.debug('FILE_OPERATION', 'fileInput click 事件被触发');
         });
         
         // 插件切换
@@ -145,6 +156,10 @@ class LogWhisperApp {
             this.exportLogs();
         });
         
+        document.getElementById('flushLogsBtn').addEventListener('click', () => {
+            this.manualFlushLogs();
+        });
+        
         document.getElementById('performanceTestBtn').addEventListener('click', () => {
             this.runPerformanceTest();
         });
@@ -180,9 +195,17 @@ class LogWhisperApp {
         
         // 键盘快捷键
         document.addEventListener('keydown', (e) => {
+            // 检查是否在输入框中，如果是则不处理快捷键
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) {
+                return;
+            }
+            
+            // Ctrl/Cmd + 快捷键
             if (e.ctrlKey || e.metaKey) {
                 switch (e.key) {
                     case 'o':
+                        console.log('🔍 Ctrl+O 快捷键被触发');
+                        this.debug('UI_OPERATION', 'Ctrl+O 快捷键触发文件选择');
                         e.preventDefault();
                         document.getElementById('fileInput').click();
                         break;
@@ -195,13 +218,34 @@ class LogWhisperApp {
                         this.clearSearch();
                         break;
                 }
+                return; // Ctrl/Cmd组合键处理完毕，不再处理方向键
             }
             
-            // 方向键导航
+            // 方向键导航 - 只有在没有按Ctrl/Cmd时才处理
+            // 重新启用键盘导航，但增加更多安全检查
             if (this.virtualScroll.enabled && this.currentEntries.length > 0) {
-                this.handleKeyboardNavigation(e);
+                // 只处理特定的导航键
+                const navigationKeys = ['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End'];
+                if (navigationKeys.includes(e.key)) {
+                    // 确保不在滚动过程中触发键盘导航
+                    const containers = [document.getElementById('originalLog'), document.getElementById('parsedLog')];
+                    const allContainersReady = containers.every(c => c && c._virtualContainer);
+                    
+                    if (allContainersReady) {
+                        this.handleKeyboardNavigation(e);
+                    }
+                }
             }
         });
+        
+        // 添加全局点击事件监听器用于调试（可选）
+        // document.addEventListener('click', (e) => {
+        //     console.log('🐆 全局点击事件:', {
+        //         target: e.target.tagName + (e.target.id ? '#' + e.target.id : ''),
+        //         className: e.target.className,
+        //         textContent: e.target.textContent?.substring(0, 30)
+        //     });
+        // }, true);
         
     }
     
@@ -1405,13 +1449,23 @@ ${line}`,
     }
     
     setupVirtualScrollContainer(container, totalHeight, type) {
+        this.debug('VIRTUAL_SCROLL', `初始化虚拟滚动容器: ${type}, 总高度: ${totalHeight}px`);
+        
+        // 检查容器尺寸
+        const containerRect = container.getBoundingClientRect();
+        const actualHeight = Math.max(containerRect.height, 400); // 使用实际高度或最小高度
+        this.debug('VIRTUAL_SCROLL', `容器 ${type} 实际尺寸: ${containerRect.width}x${containerRect.height}, 使用高度: ${actualHeight}`);
+        
         // 创建虚拟滚动容器
         const virtualContainer = document.createElement('div');
         virtualContainer.className = 'virtual-scroll-container';
         virtualContainer.style.cssText = `
-            height: 100%;
+            height: ${actualHeight}px;
             overflow-y: auto;
             position: relative;
+            background-color: var(--bg-content);
+            border: 1px solid var(--border-primary);
+            display: block;
         `;
         
         // 创建占位容器
@@ -1420,6 +1474,9 @@ ${line}`,
         placeholder.style.cssText = `
             height: ${totalHeight}px;
             position: relative;
+            background-color: transparent;
+            width: 100%;
+            display: block;
         `;
         
         // 创建可见内容容器
@@ -1430,6 +1487,10 @@ ${line}`,
             top: 0;
             left: 0;
             right: 0;
+            width: 100%;
+            background-color: transparent;
+            display: block;
+            z-index: 1;
         `;
         
         placeholder.appendChild(visibleContainer);
@@ -1444,6 +1505,18 @@ ${line}`,
         container._placeholder = placeholder;
         container._visibleContainer = visibleContainer;
         container._type = type;
+        container._actualHeight = actualHeight; // 存储实际高度
+        
+        // 更新虚拟滚动参数
+        if (type === 'original') {
+            // 只在第一个容器初始化时更新
+            this.virtualScroll.containerHeight = actualHeight;
+        }
+        
+        // 检查创建结果
+        this.debug('VIRTUAL_SCROLL', `虚拟容器创建完成: ${type}`);
+        this.debug('VIRTUAL_SCROLL', `虚拟容器尺寸: ${virtualContainer.offsetWidth}x${virtualContainer.offsetHeight}`);
+        this.debug('VIRTUAL_SCROLL', `占位器高度: ${placeholder.offsetHeight}px`);
     }
     
     bindScrollEvents() {
@@ -1510,12 +1583,14 @@ ${line}`,
     
     updateVirtualScroll() {
         const scrollTop = this.virtualScroll.scrollTop;
-        const containerHeight = 400; // 容器高度
+        const containerHeight = this.virtualScroll.containerHeight || 400; // 使用实际容器高度
         
-        // 计算可见范围
-        const startIndex = Math.floor(scrollTop / this.virtualScroll.itemHeight);
+        // 计算可见范围，使用更精确的计算
+        const itemHeight = this.virtualScroll.itemHeight;
+        const startIndex = Math.floor(scrollTop / itemHeight);
+        const visibleItemCount = Math.ceil(containerHeight / itemHeight);
         const endIndex = Math.min(
-            startIndex + Math.ceil(containerHeight / this.virtualScroll.itemHeight) + this.virtualScroll.bufferSize,
+            startIndex + visibleItemCount + this.virtualScroll.bufferSize * 2, // 双向缓冲
             this.currentEntries.length
         );
         
@@ -1528,6 +1603,7 @@ ${line}`,
             this.virtualScroll.endIndex = newEndIndex;
             
             this.debug('VIRTUAL_SCROLL', `虚拟滚动更新: 显示 ${this.virtualScroll.startIndex}-${this.virtualScroll.endIndex} / ${this.currentEntries.length}`);
+            this.debug('VIRTUAL_SCROLL', `滚动位置: ${scrollTop}px, 容器高度: ${containerHeight}px, 项目高度: ${itemHeight}px, 可见项目数: ${visibleItemCount}`);
             
             // 检查并加载需要的数据块
             this.loadRequiredChunks();
@@ -1546,7 +1622,7 @@ ${line}`,
     // ==================== 日志系统 ====================
     
     // 应用日志记录
-    appLog: function(level, module, message, data) {
+    appLog(level, module, message, data) {
         if (data === undefined) data = null;
         var timestamp = new Date().toISOString();
         var logEntry = {
@@ -1597,41 +1673,105 @@ ${line}`,
         
         // 更新调试面板
         this.updateDebugLogs(logEntry);
-    },
+    }
     
     // 文件日志 - 直接写入，无缓冲区
-    fileLog: function(logEntry) {
+    fileLog(logEntry) {
         var self = this;
         try {
             // 格式化单条日志
             var logText = logEntry.timestamp + ' [' + logEntry.level + '] [' + logEntry.module + '] ' + logEntry.message + 
                          (logEntry.data ? '\n数据: ' + JSON.stringify(logEntry.data, null, 2) : '') + '\n';
             
-            // 调用Tauri命令直接写入文件
-            if (window.__TAURI__) {
+            // 检查是否在 Tauri 环境中
+            if (window.__TAURI__ && window.__TAURI__.invoke) {
+                // 调用Tauri命令直接写入文件
                 window.__TAURI__.invoke('write_log', { 
                     content: logText,
                     append: true 
                 }).then(function(response) {
-                    console.log('日志写入成功:', response);
+                    // 成功写入，静默处理
+                    // console.log('日志已写入文件'); // 移除这行避免过多输出
                 }).catch(function(error) {
                     console.error('文件日志写入失败:', error);
                     // 备用方案：输出到控制台
                     console.log('备用日志输出:', logText);
                 });
             } else {
-                // 开发环境下的备用方案
-                console.log('开发环境日志:', logText);
+                // 浏览器环境或开发环境 - 模拟文件写入
+                // console.log('开发环境日志:', logText.trim()); // 移除频繁的控制台输出
+                
+                // 使用更智能的缓冲区管理
+                if (this.logger.fileBuffer === undefined) {
+                    this.logger.fileBuffer = [];
+                    this.logger.lastFlushTime = Date.now();
+                }
+                
+                this.logger.fileBuffer.push(logText);
+                
+                // 改进缓冲区刷新策略：基于时间和数量双重条件
+                const now = Date.now();
+                const timeSinceLastFlush = now - (this.logger.lastFlushTime || 0);
+                const bufferFull = this.logger.fileBuffer.length >= 500; // 增加缓冲区大小
+                const timeExpired = timeSinceLastFlush > 30000; // 30秒自动刷新一次
+                
+                // 只有在缓冲区满了或者长时间未刷新时才触发
+                if (bufferFull || timeExpired) {
+                    this.flushLogBuffer();
+                    this.logger.lastFlushTime = now;
+                }
             }
         } catch (error) {
             console.error('文件日志写入失败:', error);
             // 备用方案：输出到控制台
             console.log('备用日志输出:', logText);
         }
-    },
+    }
+    
+    // 刷新日志缓冲区（浏览器环境）
+    flushLogBuffer() {
+        if (!this.logger.fileBuffer || this.logger.fileBuffer.length === 0) {
+            return;
+        }
+        
+        // 防止重复刷新（防抖）
+        if (this.logger.isFlushingBuffer) {
+            return;
+        }
+        
+        this.logger.isFlushingBuffer = true;
+        
+        try {
+            const logContent = this.logger.fileBuffer.join('');
+            const blob = new Blob([logContent], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `logwhisper-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.log`;
+            a.style.display = 'none';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            
+            URL.revokeObjectURL(url);
+            
+            // 清空缓冲区
+            this.logger.fileBuffer = [];
+            
+            console.log('日志缓冲区已刷新到文件');
+        } catch (error) {
+            console.error('刷新日志缓冲区失败:', error);
+        } finally {
+            // 延迟重置状态，防止频繁触发
+            setTimeout(() => {
+                this.logger.isFlushingBuffer = false;
+            }, 2000); // 2秒防抖
+        }
+    }
     
     // 更新调试面板日志
-    updateDebugLogs: function(logEntry) {
+    updateDebugLogs(logEntry) {
         var debugLogs = document.getElementById('debugLogs');
         if (!debugLogs) return;
         
@@ -1651,31 +1791,31 @@ ${line}`,
         }
         
         debugLogs.scrollTop = debugLogs.scrollHeight;
-    },
+    }
     
     // 便捷的日志方法
-    debug: function(module, message, data) {
+    debug(module, message, data) {
         if (data === undefined) data = null;
         this.appLog('DEBUG', module, message, data);
-    },
+    }
     
-    info: function(module, message, data) {
+    info(module, message, data) {
         if (data === undefined) data = null;
         this.appLog('INFO', module, message, data);
-    },
+    }
     
-    warn: function(module, message, data) {
+    warn(module, message, data) {
         if (data === undefined) data = null;
         this.appLog('WARN', module, message, data);
-    },
+    }
     
-    error: function(module, message, data) {
+    error(module, message, data) {
         if (data === undefined) data = null;
         this.appLog('ERROR', module, message, data);
-    },
+    }
     
     // 导出日志
-    exportLogs: function() {
+    exportLogs() {
         var logs = this.logger.logs;
         var logText = logs.map(function(log) {
             return log.timestamp + ' [' + log.level + '] [' + log.module + '] ' + log.message + 
@@ -1691,10 +1831,30 @@ ${line}`,
         URL.revokeObjectURL(url);
         
         this.info('LOGGER', '日志已导出');
-    },
+    }
+    
+    // 手动刷新日志缓冲区
+    manualFlushLogs() {
+        if (window.__TAURI__ && window.__TAURI__.invoke) {
+            // Tauri环境下，日志已经实时写入文件
+            this.showToast('日志已实时写入到 logs/ 目录');
+            this.info('LOGGER', '日志实时写入已启用，检查 logs/ 目录');
+        } else {
+            // 浏览器环境下，检查是否有日志需要刷新
+            if (!this.logger.fileBuffer || this.logger.fileBuffer.length === 0) {
+                this.showToast('暂无日志内容需要刷新');
+                return;
+            }
+            
+            // 浏览器环境下，手动触发缓冲区刷新
+            this.flushLogBuffer();
+            this.showToast(`日志缓冲区已刷新，导出 ${this.logger.fileBuffer.length} 条日志`);
+            this.info('LOGGER', '日志缓冲区已手动刷新');
+        }
+    }
     
     // 清空日志
-    clearLogs: function() {
+    clearLogs() {
         // 清空内存中的日志
         this.logger.logs = [];
         
@@ -1705,16 +1865,16 @@ ${line}`,
         }
         
         this.info('LOGGER', '日志已清空');
-    },
+    }
     
     // 设置日志级别
-    setLogLevel: function(level) {
+    setLogLevel(level) {
         this.logger.level = level;
         this.info('LOGGER', '日志级别设置为: ' + level);
-    },
+    }
     
     // 测试日志系统
-    testLogging: function() {
+    testLogging() {
         console.log('开始测试日志系统...');
         this.info('TEST', '开始测试日志系统...');
         this.debug('TEST', '调试日志测试');
@@ -1803,11 +1963,32 @@ ${line}`,
         const originalContainer = document.getElementById('originalLog');
         const parsedContainer = document.getElementById('parsedLog');
         
+        // 检查容器是否存在
+        if (!originalContainer || !parsedContainer) {
+            this.error('VIRTUAL_SCROLL', '无法找到日志容器');
+            return;
+        }
+        
+        // 检查虚拟滚动容器是否正确初始化
+        if (!originalContainer._visibleContainer || !parsedContainer._visibleContainer) {
+            this.error('VIRTUAL_SCROLL', '虚拟滚动容器未正确初始化，重新初始化...');
+            this.renderVirtualScroll();
+            return;
+        }
+        
+        // 添加详细的DOM调试信息
+        this.debug('VIRTUAL_SCROLL', `容器状态检查:`);        
+        this.debug('VIRTUAL_SCROLL', `原始容器尺寸: ${originalContainer.offsetWidth}x${originalContainer.offsetHeight}`);
+        this.debug('VIRTUAL_SCROLL', `虚拟容器尺寸: ${originalContainer._virtualContainer.offsetWidth}x${originalContainer._virtualContainer.offsetHeight}`);
+        this.debug('VIRTUAL_SCROLL', `可见容器元素数: ${originalContainer._visibleContainer.children.length}`);
+        this.debug('VIRTUAL_SCROLL', `渲染范围: ${this.virtualScroll.startIndex}-${this.virtualScroll.endIndex} / ${this.currentEntries.length}`);
+        
         // 清空可见容器
         originalContainer._visibleContainer.innerHTML = '';
         parsedContainer._visibleContainer.innerHTML = '';
         
         // 渲染可见范围内的项目
+        let renderedCount = 0;
         for (let i = this.virtualScroll.startIndex; i < this.virtualScroll.endIndex; i++) {
             if (i >= this.currentEntries.length) break;
             
@@ -1818,6 +1999,7 @@ ${line}`,
                 // 显示加载占位符
                 this.renderLoadingPlaceholder(originalContainer._visibleContainer, i, 'original');
                 this.renderLoadingPlaceholder(parsedContainer._visibleContainer, i, 'parsed');
+                renderedCount++;
                 continue;
             }
             
@@ -1826,12 +2008,38 @@ ${line}`,
             
             // 渲染解析结果
             this.renderVirtualLogItem(parsedContainer._visibleContainer, entry, i, 'parsed');
+            renderedCount++;
         }
         
         // 更新可见容器的位置
         const offsetY = this.virtualScroll.startIndex * this.virtualScroll.itemHeight;
         originalContainer._visibleContainer.style.transform = `translateY(${offsetY}px)`;
         parsedContainer._visibleContainer.style.transform = `translateY(${offsetY}px)`;
+        
+        // 检查渲染后的DOM状态
+        // this.debug('VIRTUAL_SCROLL', `渲染后状态:`); // 减少调试日志
+        // this.debug('VIRTUAL_SCROLL', `原始容器子元素数: ${originalContainer._visibleContainer.children.length}`);
+        // this.debug('VIRTUAL_SCROLL', `解析容器子元素数: ${parsedContainer._visibleContainer.children.length}`);
+        // this.debug('VIRTUAL_SCROLL', `实际渲染项目数: ${renderedCount}`);
+        // this.debug('VIRTUAL_SCROLL', `容器偏移量: ${offsetY}px`);
+        
+        // 只在重要情况下记录日志
+        if (renderedCount === 0 && this.currentEntries.length > 0) {
+            this.error('VIRTUAL_SCROLL', '渲染项目数为0，可能存在问题');
+        }
+        
+        // 强制重绘以确保内容可见
+        originalContainer._visibleContainer.style.display = 'none';
+        parsedContainer._visibleContainer.style.display = 'none';
+        
+        // 使用 requestAnimationFrame 确保重绘完成
+        requestAnimationFrame(() => {
+            originalContainer._visibleContainer.style.display = 'block';
+            parsedContainer._visibleContainer.style.display = 'block';
+            this.debug('VIRTUAL_SCROLL', `强制重绘完成`);
+        });
+        
+        this.debug('VIRTUAL_SCROLL', `渲染完成: 显示 ${renderedCount} 个项目`);
     }
     
     renderLoadingPlaceholder(container, index, type) {
@@ -1846,17 +2054,23 @@ ${line}`,
             background: linear-gradient(90deg, var(--bg-tertiary) 25%, var(--bg-secondary) 50%, var(--bg-tertiary) 75%);
             background-size: 200% 100%;
             animation: loading 1.5s infinite;
+            width: 100%;
+            box-sizing: border-box;
+            min-height: ${this.virtualScroll.itemHeight}px;
+            color: var(--text-primary);
         `;
         
         item.innerHTML = `
-            <div class="text-xs text-gray-500 mr-2" style="color: var(--text-tertiary);">第 ${index + 1} 行</div>
+            <div class="text-xs mr-2" style="color: var(--text-tertiary); min-width: 60px; flex-shrink: 0;">第 ${index + 1} 行</div>
             <div class="flex-1">
-                <div class="h-4 bg-gray-300 rounded animate-pulse" style="background-color: var(--text-tertiary);"></div>
-                <div class="h-3 bg-gray-200 rounded animate-pulse mt-1" style="background-color: var(--text-muted);"></div>
+                <div class="h-4 rounded animate-pulse" style="background-color: var(--text-tertiary); margin-bottom: 4px;"></div>
+                <div class="h-3 rounded animate-pulse" style="background-color: var(--text-muted); width: 80%;"></div>
             </div>
         `;
         
         container.appendChild(item);
+        
+        // this.debug('VIRTUAL_SCROLL', `添加加载占位符: ${type} ${index + 1}`); // 减少调试日志
     }
     
     renderVirtualLogItem(container, entry, index, type) {
@@ -1868,35 +2082,58 @@ ${line}`,
             border-bottom: 1px solid var(--border-primary);
             display: flex;
             align-items: center;
+            background-color: var(--bg-content);
+            color: var(--text-primary);
+            width: 100%;
+            box-sizing: border-box;
+            min-height: ${this.virtualScroll.itemHeight}px;
+            position: relative;
         `;
         
         if (type === 'original') {
+            // 检查原始数据是否存在
+            const content = entry.original && entry.original.content ? entry.original.content : '无数据';
             item.innerHTML = `
-                <div class="text-xs text-gray-500 mr-2" style="color: var(--text-tertiary);">第 ${index + 1} 行</div>
-                <div class="font-mono text-sm flex-1" style="color: var(--text-primary);">${this.escapeHtml(entry.original.content)}</div>
+                <div class="text-xs mr-2" style="color: var(--text-tertiary); min-width: 60px; flex-shrink: 0;">第 ${index + 1} 行</div>
+                <div class="font-mono text-sm flex-1" style="color: var(--text-primary); word-break: break-all; overflow-wrap: anywhere;">${this.escapeHtml(content)}</div>
             `;
         } else {
-            if (entry.rendered_blocks.length > 0) {
+            // 检查解析结果是否存在
+            if (entry.rendered_blocks && entry.rendered_blocks.length > 0) {
                 const block = entry.rendered_blocks[0];
+                const title = block.title || '解析结果';
+                const content = block.content || '无内容';
                 item.innerHTML = `
-                    <div class="text-xs text-gray-500 mr-2" style="color: var(--text-tertiary);">第 ${index + 1} 行</div>
+                    <div class="text-xs mr-2" style="color: var(--text-tertiary); min-width: 60px; flex-shrink: 0;">第 ${index + 1} 行</div>
                     <div class="flex-1">
-                        <div class="font-semibold text-sm mb-1" style="color: var(--text-primary);">${block.title}</div>
-                        <div class="text-xs" style="color: var(--text-secondary);">${this.escapeHtml(block.content.substring(0, 100))}${block.content.length > 100 ? '...' : ''}</div>
+                        <div class="font-semibold text-sm mb-1" style="color: var(--text-primary);">${this.escapeHtml(title)}</div>
+                        <div class="text-xs" style="color: var(--text-secondary); word-break: break-all; overflow-wrap: anywhere;">${this.escapeHtml(content.substring(0, 100))}${content.length > 100 ? '...' : ''}</div>
                     </div>
-                    <button onclick="app.copyToClipboard('${block.id}')" class="copy-btn text-xs px-2 py-1">
+                    <button onclick="app.copyToClipboard('${block.id || ''}')" class="copy-btn text-xs px-2 py-1 flex-shrink-0" style="background-color: var(--color-primary); color: var(--text-inverse); border: none; border-radius: 4px; cursor: pointer;">
                         复制
                     </button>
                 `;
             } else {
                 item.innerHTML = `
-                    <div class="text-xs text-gray-500 mr-2" style="color: var(--text-tertiary);">第 ${index + 1} 行</div>
+                    <div class="text-xs mr-2" style="color: var(--text-tertiary); min-width: 60px; flex-shrink: 0;">第 ${index + 1} 行</div>
                     <div class="text-sm" style="color: var(--text-secondary);">无解析结果</div>
                 `;
             }
         }
         
+        // 添加鼠标悬停效果
+        item.addEventListener('mouseenter', () => {
+            item.style.backgroundColor = 'var(--bg-hover)';
+        });
+        
+        item.addEventListener('mouseleave', () => {
+            item.style.backgroundColor = 'var(--bg-content)';
+        });
+        
         container.appendChild(item);
+        
+        // 只在需要时记录调试信息
+        // this.debug('VIRTUAL_SCROLL', `添加项目: ${type} ${index + 1}, 容器子元素数: ${container.children.length}`);
     }
     
     // 分块加载实现
@@ -1978,12 +2215,18 @@ ${line}`,
     
     // 键盘导航处理
     handleKeyboardNavigation(e) {
+        console.log(`⌨️ 键盘导航: ${e.key}`);
+        this.debug('KEYBOARD_NAV', `键盘导航: ${e.key}`);
+        
         const container = document.getElementById('originalLog');
-        if (!container._virtualContainer) return;
+        if (!container._virtualContainer) {
+            console.log('⚠️ 虚拟容器不存在，取消导航');
+            return;
+        }
         
         const currentScrollTop = container._virtualContainer.scrollTop;
         const itemHeight = this.virtualScroll.itemHeight;
-        const containerHeight = 400;
+        const containerHeight = this.virtualScroll.containerHeight || 400;
         const maxScrollTop = this.currentEntries.length * itemHeight - containerHeight;
         
         let newScrollTop = currentScrollTop;
@@ -2022,7 +2265,8 @@ ${line}`,
             // 平滑滚动到新位置
             this.smoothScrollTo(newScrollTop);
             
-            this.logDebug(`⌨️ 键盘导航: ${e.key} -> 滚动到 ${Math.round(newScrollTop)}px`);
+            console.log(`⌨️ 键盘导航: ${e.key} -> 滚动到 ${Math.round(newScrollTop)}px`);
+            this.debug('KEYBOARD_NAV', `键盘导航: ${e.key} -> 滚动到 ${Math.round(newScrollTop)}px`);
         }
     }
     

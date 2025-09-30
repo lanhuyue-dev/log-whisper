@@ -5,6 +5,65 @@ use crate::parser::{FileReader, LineParser, RenderEngine, ParseCache};
 use crate::plugins::PluginRegistry;
 use log::{info, warn, error, debug, trace};
 
+/// 流式解析迭代器
+pub struct StreamingParseIterator {
+    line_iterator: Box<dyn Iterator<Item = Result<String, ParseError>>>,
+    line_parser: LineParser,
+    render_engine: RenderEngine,
+    config: ParseConfig,
+    line_number: usize,
+}
+
+impl StreamingParseIterator {
+    pub fn new(
+        line_iterator: Box<dyn Iterator<Item = Result<String, ParseError>>>,
+        line_parser: LineParser,
+        render_engine: RenderEngine,
+        config: ParseConfig,
+    ) -> Self {
+        Self {
+            line_iterator,
+            line_parser,
+            render_engine,
+            config,
+            line_number: 0,
+        }
+    }
+}
+
+impl Iterator for StreamingParseIterator {
+    type Item = Result<ParseResult, ParseError>;
+    
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.line_iterator.next() {
+            Some(Ok(line)) => {
+                self.line_number += 1;
+                
+                // 解析日志条目
+                match self.line_parser.parse_line(self.line_number, &line) {
+                    Ok(entry) => {
+                        // 渲染结果
+                        if self.config.plugin_name == "Auto" {
+                            match self.render_engine.render_entry(&entry) {
+                                Ok(result) => Some(Ok(result)),
+                                Err(e) => Some(Err(e.into())),
+                            }
+                        } else {
+                            match self.render_engine.render_entry_with_plugin(&entry, &self.config.plugin_name) {
+                                Ok(result) => Some(Ok(result)),
+                                Err(e) => Some(Err(e.into())),
+                            }
+                        }
+                    }
+                    Err(e) => Some(Err(e))
+                }
+            }
+            Some(Err(e)) => Some(Err(e)),
+            None => None,
+        }
+    }
+}
+
 /// 日志解析器
 pub struct LogParser {
     file_reader: FileReader,
@@ -164,6 +223,73 @@ impl LogParser {
         }
         
         Ok(result_set)
+    }
+    
+    /// 流式解析文件（支持大文件）
+    pub async fn parse_file_streaming(&self, file_path: &str) -> Result<Box<dyn Iterator<Item = Result<ParseResult, ParseError>>>, ParseError> {
+        info!("开始流式解析文件: {}", file_path);
+        debug!("解析配置: {:?}", self.config);
+        
+        // 验证文件类型
+        self.file_reader.validate_file_type(file_path)?;
+        
+        // 获取流式读取迭代器
+        let line_iterator = self.file_reader.read_lines_smart(file_path).await?;
+        
+        // 在这里我们直接使用简化的解析方式
+        let iter = line_iterator.enumerate().filter_map(move |(index, line_result)| {
+            match line_result {
+                Ok(line) => {
+                    // 简单解析 - 创建基本的ParseResult
+                    let entry = crate::models::LogEntry::new(index + 1, line);
+                    let parse_result = crate::models::ParseResult::new(entry);
+                    Some(Ok(parse_result))
+                }
+                Err(e) => Some(Err(e))
+            }
+        });
+        
+        Ok(Box::new(iter))
+    }
+    
+    /// 分块解析文件（用于虚拟滚动）
+    pub async fn parse_file_chunked(&self, file_path: &str, chunk_count: usize) -> Result<Vec<ParseResult>, ParseError> {
+        info!("开始分块解析文件: {}, 块数量: {}", file_path, chunk_count);
+        
+        // 验证文件类型
+        self.file_reader.validate_file_type(file_path)?;
+        
+        // 获取文件分块信息
+        let chunks = self.file_reader.get_file_chunks(file_path, chunk_count)?;
+        info!("文件分为 {} 个块", chunks.len());
+        
+        let mut results = Vec::new();
+        
+        // 处理每个块
+        for (chunk_index, chunk) in chunks.iter().enumerate() {
+            debug!("处理第 {} 个块: {} - {}", chunk_index, chunk.start_offset, chunk.end_offset);
+            
+            // 读取块内容
+            let lines = self.file_reader.read_file_range(file_path, chunk.start_offset, chunk.end_offset)?;
+            
+            // 解析日志条目
+            let log_entries = self.line_parser.parse_lines(lines)?;
+            
+            // 合并多行日志
+            let merged_entries = self.line_parser.merge_multiline_logs(log_entries);
+            
+            // 渲染结果
+            let chunk_results = if self.config.plugin_name == "Auto" {
+                self.render_engine.render_entries(merged_entries)?
+            } else {
+                self.render_engine.render_entries_with_plugin(merged_entries, &self.config.plugin_name)?
+            };
+            
+            results.extend(chunk_results);
+        }
+        
+        info!("分块解析完成，总结果数: {}", results.len());
+        Ok(results)
     }
     
     /// 流式解析文件

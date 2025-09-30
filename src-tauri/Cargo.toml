@@ -33,6 +33,7 @@ env_logger = "0.10"
 # 文件处理
 walkdir = "2.4"
 mime_guess = "2.0"
+memmap2 = "0.9" # 内存映射文件支持
 
 # 性能监控
 sysinfo = "0.30"

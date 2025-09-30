@@ -18,12 +18,17 @@ class LogWhisperApp {
         // 虚拟滚动配置
         this.virtualScroll = {
             enabled: true,
-            itemHeight: 60, // 每个日志项的高度
-            visibleCount: 20, // 可见区域显示的项目数
-            bufferSize: 5, // 缓冲区大小
+            itemHeight: 120, // 每个日志项的高度（增加以适应复杂内容）
+            visibleCount: 15, // 可见区域显示的项目数
+            bufferSize: 10, // 缓冲区大小（增加以减少频繁渲染）
             scrollTop: 0,
             startIndex: 0,
-            endIndex: 0
+            endIndex: 0,
+            containerHeight: 600,
+            totalItems: 0,
+            renderedItems: [], // 当前渲染的项目
+            viewportStartIndex: 0,
+            viewportEndIndex: 0
         };
         
         // 分块加载配置
@@ -38,6 +43,17 @@ class LogWhisperApp {
             loadingQueue: [], // 加载队列
             isProcessing: false, // 是否正在处理
             checkInterval: null // 检查间隔
+        };
+        
+        // 内存管理配置
+        this.memoryManager = {
+            maxMemoryUsage: 500 * 1024 * 1024, // 500MB
+            currentMemoryUsage: 0,
+            gcThreshold: 400 * 1024 * 1024, // 400MB触发GC
+            enableMonitoring: true,
+            lastGcTime: 0,
+            chunkSize: 1000, // 分块大小
+            maxCachedChunks: 50 // 最大缓存块数
         };
         
         // 日志系统配置
@@ -279,9 +295,38 @@ class LogWhisperApp {
             return;
         }
         
-        if (file.size > 50 * 1024 * 1024) {
-            this.showError('文件过大，请选择小于 50MB 的文件');
+        // 大文件检测和警告
+        const fileSize = file.size;
+        const fileSizeMB = (fileSize / (1024 * 1024)).toFixed(2);
+        
+        this.info('FILE_OPERATION', `文件大小: ${fileSizeMB}MB`, { fileSize, fileSizeMB });
+        
+        // 检查内存使用情况
+        this.checkMemoryUsage();
+        
+        if (fileSize > this.memoryManager.maxMemoryUsage) {
+            const maxMB = (this.memoryManager.maxMemoryUsage / (1024 * 1024)).toFixed(0);
+            this.showError(`文件过大（${fileSizeMB}MB），超过限制（${maxMB}MB）。请使用专业日志分析工具。`);
             return;
+        }
+        
+        // 大文件警告和优化提示
+        if (fileSize > 50 * 1024 * 1024) { // 50MB
+            const confirmed = confirm(
+                `正在加载大文件（${fileSizeMB}MB）。\n` +
+                `将自动启用大文件优化模式：\n` +
+                `- 虚拟滚动\n` +
+                `- 分块加载\n` +
+                `- 内存管理\n\n` +
+                `继续加载吗？`
+            );
+            
+            if (!confirmed) {
+                return;
+            }
+            
+            // 强制启用优化模式
+            this.enableLargeFileMode();
         }
         
         this.showLoading('正在解析文件...');
@@ -317,7 +362,7 @@ class LogWhisperApp {
             this.debugStats.parseCount++;
             this.debugStats.totalParseTime += parseTime;
             
-                this.currentFile = file;
+            this.currentFile = file;
             
             this.info('PARSER', `解析成功: ${this.currentEntries.length} 行日志，耗时 ${Math.round(parseTime)}ms`, { 
                 entryCount: this.currentEntries.length, 
@@ -326,11 +371,14 @@ class LogWhisperApp {
                 errorCount: this.currentEntries.filter(r => r.is_error).length
             });
             
-                this.renderResults();
-                this.updateStatus(`已加载 ${this.currentEntries.length} 行日志`);
-                this.updateFileInfo(file);
-                
+            this.renderResults();
+            this.updateStatus(`已加载 ${this.currentEntries.length} 行日志`);
+            this.updateFileInfo(file);
+            
             this.updateDebugStats();
+            
+            // 更新内存使用情况
+            this.updateMemoryUsage();
             
         } catch (error) {
             const parseTime = performance.now() - startTime;
@@ -2319,6 +2367,162 @@ ${line}`,
         // 确保虚拟滚动状态同步
         this.virtualScroll.scrollTop = originalContainer._virtualContainer.scrollTop;
         this.updateVirtualScroll();
+    }
+    
+    // 启用大文件模式
+    enableLargeFileMode() {
+        this.info('MEMORY_MANAGER', '启用大文件优化模式');
+        
+        // 开启虚拟滚动
+        this.virtualScroll.enabled = true;
+        this.virtualScroll.bufferSize = 20; // 增加缓冲区
+        
+        // 开启分块加载
+        this.chunkLoading.enabled = true;
+        this.chunkLoading.chunkSize = 500; // 较小的块大小
+        this.chunkLoading.adaptiveChunkSize = true;
+        
+        // 开启内存监控
+        this.memoryManager.enableMonitoring = true;
+        
+        // 更新UI状态
+        if (document.getElementById('virtualScrollEnabled')) {
+            document.getElementById('virtualScrollEnabled').checked = true;
+        }
+        if (document.getElementById('chunkLoadingEnabled')) {
+            document.getElementById('chunkLoadingEnabled').checked = true;
+        }
+        
+        this.logDebug('🚀 大文件优化模式已启用');
+    }
+    
+    // 检查内存使用情况
+    checkMemoryUsage() {
+        if (!this.memoryManager.enableMonitoring) return;
+        
+        try {
+            // 估算当前内存使用量
+            const estimatedUsage = this.estimateMemoryUsage();
+            this.memoryManager.currentMemoryUsage = estimatedUsage;
+            
+            // 检查是否需要GC
+            if (estimatedUsage > this.memoryManager.gcThreshold) {
+                this.performGarbageCollection();
+            }
+            
+        } catch (error) {
+            this.warn('MEMORY_MANAGER', '内存检查失败', { error: error.message });
+        }
+    }
+    
+    // 估算内存使用量
+    estimateMemoryUsage() {
+        let totalSize = 0;
+        
+        // 估算日志数据大小
+        if (this.currentEntries && this.currentEntries.length > 0) {
+            const sampleEntry = this.currentEntries[0];
+            const entrySize = JSON.stringify(sampleEntry).length * 2; // UTF-16字符
+            totalSize += entrySize * this.currentEntries.length;
+        }
+        
+        // 估算DOM元素大小
+        const domElements = document.querySelectorAll('.log-line, .rendered-block');
+        totalSize += domElements.length * 500; // 每个DOM元素估计500字节
+        
+        // 估算日志缓冲区大小
+        if (this.logger.logs) {
+            totalSize += this.logger.logs.length * 200;
+        }
+        
+        return totalSize;
+    }
+    
+    // 执行垃圾回收
+    performGarbageCollection() {
+        const now = Date.now();
+        if (now - this.memoryManager.lastGcTime < 30000) { // 30秒内不重复GC
+            return;
+        }
+        
+        this.info('MEMORY_MANAGER', '开始内存清理');
+        
+        try {
+            // 清理旧的日志数据
+            if (this.logger.logs.length > this.logger.maxMemoryLogs) {
+                const removeCount = this.logger.logs.length - this.logger.maxMemoryLogs;
+                this.logger.logs.splice(0, removeCount);
+                this.debug('MEMORY_MANAGER', `清理了 ${removeCount} 条历史日志`);
+            }
+            
+            // 清理不可见的数据
+            this.cleanupInvisibleData();
+            
+            // 清理DOM元素
+            this.cleanupUnusedDomElements();
+            
+            // 强制垃圾回收（如果浏览器支持）
+            if (window.gc) {
+                window.gc();
+            }
+            
+            this.memoryManager.lastGcTime = now;
+            this.debug('MEMORY_MANAGER', '内存清理完成');
+            
+        } catch (error) {
+            this.error('MEMORY_MANAGER', '内存清理失败', { error: error.message });
+        }
+    }
+    
+    // 清理未使用的DOM元素
+    cleanupUnusedDomElements() {
+        // 清理已经不在可见区域的DOM元素
+        const containers = [document.getElementById('originalLog'), document.getElementById('parsedLog')];
+        
+        containers.forEach(container => {
+            if (!container || !container._visibleContainer) return;
+            
+            const visibleContainer = container._visibleContainer;
+            const children = Array.from(visibleContainer.children);
+            
+            // 如果子元素过多，清理一些
+            if (children.length > this.virtualScroll.visibleCount * 3) {
+                const removeCount = children.length - this.virtualScroll.visibleCount * 2;
+                for (let i = 0; i < removeCount; i++) {
+                    if (children[i]) {
+                        children[i].remove();
+                    }
+                }
+                this.debug('MEMORY_MANAGER', `清理了 ${removeCount} 个未使用的DOM元素`);
+            }
+        });
+    }
+    
+    // 更新内存使用情况
+    updateMemoryUsage() {
+        if (!this.memoryManager.enableMonitoring) return;
+        
+        const currentUsage = this.estimateMemoryUsage();
+        this.memoryManager.currentMemoryUsage = currentUsage;
+        
+        // 更新UI显示
+        const memoryUsageElement = document.getElementById('memoryUsage');
+        if (memoryUsageElement) {
+            const usageMB = (currentUsage / (1024 * 1024)).toFixed(1);
+            const maxMB = (this.memoryManager.maxMemoryUsage / (1024 * 1024)).toFixed(0);
+            memoryUsageElement.textContent = `${usageMB}MB / ${maxMB}MB`;
+        }
+        
+        // 检查是否接近限制
+        const usagePercentage = (currentUsage / this.memoryManager.maxMemoryUsage) * 100;
+        if (usagePercentage > 80) {
+            this.warn('MEMORY_MANAGER', `内存使用率过高: ${usagePercentage.toFixed(1)}%`);
+            
+            // 自动清理
+            if (usagePercentage > 90) {
+                this.performGarbageCollection();
+            }
+        }
     }
 }
 

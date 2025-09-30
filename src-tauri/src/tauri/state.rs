@@ -1,10 +1,13 @@
 use std::sync::Arc;
-use crate::parser::LogParser;
+use crate::parser::{LogParser, ChunkLoader};
+use crate::models::ChunkLoaderConfig;
 
 /// 应用状态
 pub struct AppState {
     /// 日志解析器
     pub parser: Arc<LogParser>,
+    /// 分块加载器
+    pub chunk_loader: Arc<ChunkLoader>,
     /// 当前文件路径
     pub current_file: Option<String>,
     /// 当前插件
@@ -16,8 +19,27 @@ pub struct AppState {
 impl AppState {
     /// 创建新的应用状态
     pub fn new() -> Self {
+        let parser = Arc::new(LogParser::new());
+        let chunk_config = ChunkLoaderConfig::default();
+        let chunk_loader = Arc::new(ChunkLoader::with_parser(chunk_config, parser.clone()));
+        
         Self {
-            parser: Arc::new(LogParser::new()),
+            parser,
+            chunk_loader,
+            current_file: None,
+            current_plugin: "Auto".to_string(),
+            cache_enabled: true,
+        }
+    }
+    
+    /// 使用自定义配置创建应用状态
+    pub fn with_chunk_config(chunk_config: ChunkLoaderConfig) -> Self {
+        let parser = Arc::new(LogParser::new());
+        let chunk_loader = Arc::new(ChunkLoader::with_parser(chunk_config, parser.clone()));
+        
+        Self {
+            parser,
+            chunk_loader,
             current_file: None,
             current_plugin: "Auto".to_string(),
             cache_enabled: true,

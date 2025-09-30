@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tauri API 测试</title>
+</head>
+<body>
+    <h1>Tauri API 测试</h1>
+    <button id="testBtn">测试 Tauri API</button>
+    <div id="result"></div>
+
+    <script>
+        document.getElementById('testBtn').addEventListener('click', async () => {
+            const resultDiv = document.getElementById('result');
+            
+            try {
+                console.log('🔍 检查 Tauri 环境...');
+                console.log('window.__TAURI__:', typeof window.__TAURI__);
+                console.log('window.__TAURI__ 内容:', window.__TAURI__);
+                
+                if (typeof window.__TAURI__ !== 'undefined' && window.__TAURI__.tauri) {
+                    console.log('✅ 检测到 Tauri 环境');
+                    
+                    // 测试 invoke 方法
+                    const result = await window.__TAURI__.tauri.invoke('get_available_plugins');
+                    resultDiv.innerHTML = `<p style="color: green;">✅ Tauri API 工作正常！</p><pre>${JSON.stringify(result, null, 2)}</pre>`;
+                } else {
+                    resultDiv.innerHTML = '<p style="color: red;">❌ 未检测到 Tauri 环境</p>';
+                }
+            } catch (error) {
+                console.error('测试失败:', error);
+                resultDiv.innerHTML = `<p style="color: red;">❌ 测试失败: ${error.message}</p>`;
+            }
+        });
+    </script>
+</body>
+</html>

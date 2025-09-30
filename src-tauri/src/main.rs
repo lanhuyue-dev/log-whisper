@@ -3,7 +3,10 @@
 
 use log::{info, debug, trace};
 use env_logger;
+use std::sync::Arc;
 use log_whisper::tauri::AppState;
+use log_whisper::parser::ChunkLoader;
+use log_whisper::models::ChunkLoaderConfig;
 
 fn main() {
     // 初始化日志系统
@@ -11,10 +14,15 @@ fn main() {
     
     info!("LogWhisper 应用启动中...");
     
+    // 创建应用状态
+    let app_state = AppState::new();
+    let chunk_loader = app_state.chunk_loader.clone();
+    
     tauri::Builder::default()
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
-        .manage(AppState::new())
+        .manage(app_state)
+        .manage(chunk_loader)
         .invoke_handler(tauri::generate_handler![
             log_whisper::tauri::commands::parse_file,
             log_whisper::tauri::commands::get_supported_formats,
@@ -22,7 +30,15 @@ fn main() {
             log_whisper::tauri::commands::get_file_info,
             log_whisper::tauri::commands::clear_cache,
             log_whisper::tauri::commands::get_cache_stats,
-            log_whisper::tauri::commands::write_log
+            log_whisper::tauri::commands::write_log,
+            log_whisper::tauri::commands::initialize_file_chunks,
+            log_whisper::tauri::commands::load_chunks,
+            log_whisper::tauri::commands::get_memory_info,
+            log_whisper::tauri::commands::cleanup_memory,
+            log_whisper::tauri::commands::get_chunk_status,
+            log_whisper::tauri::commands::preload_chunks,
+            log_whisper::tauri::commands::clear_all_cache,
+            log_whisper::tauri::commands::validate_file
         ])
         .setup(|app| {
             info!("LogWhisper 启动完成");

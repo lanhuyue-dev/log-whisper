@@ -31,30 +31,39 @@ class LogWhisperApp {
             viewportEndIndex: 0
         };
         
-        // 分块加载配置
-        this.chunkLoading = {
-            enabled: true,
-            chunkSize: 100, // 每次加载的日志条数
-            loadedChunks: new Set(), // 已加载的块
+        // 分块加载配置（移除，改用Rust后端API）
+        // this.chunkLoading = {
+        //     enabled: true,
+        //     chunkSize: 100,
+        //     loadedChunks: new Set(),
+        //     totalChunks: 0,
+        //     maxChunkSize: 1000,
+        //     minChunkSize: 50,
+        //     adaptiveChunkSize: true,
+        //     loadingQueue: [],
+        //     isProcessing: false,
+        //     checkInterval: null
+        // };
+        
+        // Rust后端分块加载配置
+        this.backendChunkLoader = {
+            initialized: false,
+            currentFileMetadata: null,
+            loadedChunks: new Set(),
             totalChunks: 0,
-            maxChunkSize: 1000, // 最大块大小
-            minChunkSize: 50, // 最小块大小
-            adaptiveChunkSize: true, // 自适应块大小
-            loadingQueue: [], // 加载队列
-            isProcessing: false, // 是否正在处理
-            checkInterval: null // 检查间隔
+            chunkSize: 100
         };
         
-        // 内存管理配置
-        this.memoryManager = {
-            maxMemoryUsage: 500 * 1024 * 1024, // 500MB
-            currentMemoryUsage: 0,
-            gcThreshold: 400 * 1024 * 1024, // 400MB触发GC
-            enableMonitoring: true,
-            lastGcTime: 0,
-            chunkSize: 1000, // 分块大小
-            maxCachedChunks: 50 // 最大缓存块数
-        };
+        // 内存管理配置（移除，改用Rust后端API）
+        // this.memoryManager = {
+        //     maxMemoryUsage: 5000 * 1024 * 1024,
+        //     currentMemoryUsage: 0,
+        //     gcThreshold: 2048 * 1024 * 1024,
+        //     enableMonitoring: true,
+        //     lastGcTime: 0,
+        //     chunkSize: 1000,
+        //     maxCachedChunks: 50
+        // };
         
         // 日志系统配置
         this.logger = {
@@ -94,25 +103,71 @@ class LogWhisperApp {
     
     async initTauriAPI() {
         try {
-            // 检查Tauri API是否可用
+            // 等待更长时间，让 Tauri 完成初始化
+            await new Promise(resolve => setTimeout(resolve, 500));
+            
+            console.log('🔍 开始 Tauri API 检测...');
+            console.log('window.__TAURI__ 存在:', typeof window.__TAURI__ !== 'undefined');
+            
             if (typeof window.__TAURI__ !== 'undefined') {
-                console.log('Tauri API 已加载');
-                return true;
+                console.log('window.__TAURI__ 内容:', window.__TAURI__);
+                console.log('tauri 对象存在:', typeof window.__TAURI__.tauri !== 'undefined');
+                console.log('invoke 方法存在:', typeof window.__TAURI__.tauri?.invoke !== 'undefined');
+            }
+            
+            // 检查Tauri API是否可用
+            if (typeof window.__TAURI__ !== 'undefined' && window.__TAURI__.tauri && window.__TAURI__.tauri.invoke) {
+                console.log('✅ Tauri API 已加载');
+                this.info('TAURI', 'Tauri 环境检测成功');
+                
+                // 测试一个简单的命令
+                try {
+                    console.log('🧪 测试 Tauri 命令...');
+                    const result = await window.__TAURI__.tauri.invoke('get_available_plugins');
+                    console.log('✅ Tauri 命令测试成功:', result);
+                    return true;
+                } catch (testError) {
+                    console.warn('⚠️ Tauri 命令测试失败:', testError);
+                    // 即使命令失败，API 仍然可用
+                    return true;
+                }
             } else {
-                console.warn('Tauri API 不可用，使用模拟模式');
+                console.warn('⚠️ Tauri API 不可用');
+                console.log('详细调试信息:', {
+                    hasTAURI: typeof window.__TAURI__ !== 'undefined',
+                    tauri: window.__TAURI__?.tauri,
+                    invoke: window.__TAURI__?.tauri?.invoke,
+                    dialog: window.__TAURI__?.dialog
+                });
+                this.warn('TAURI', 'Tauri 环境检测失败，请使用桌面应用启动');
                 return false;
             }
         } catch (error) {
-            console.error('初始化Tauri API失败:', error);
+            console.error('❌ 初始化Tauri API失败:', error);
+            this.error('TAURI', `Tauri API 初始化失败: ${error.message}`);
             return false;
         }
     }
     
     setupEventListeners() {
         // 文件选择按钮
-        document.getElementById('openFileBtn').addEventListener('click', (e) => {
+        document.getElementById('openFileBtn').addEventListener('click', async (e) => {
             console.log('📁 文件选择按钮被点击');
             this.debug('UI_OPERATION', '文件选择按钮被点击');
+            try {
+                if (window.__TAURI__ && window.__TAURI__.dialog && window.__TAURI__.dialog.open) {
+                    const selected = await window.__TAURI__.dialog.open({
+                        multiple: false,
+                        filters: [{ name: 'Logs', extensions: ['log', 'txt'] }]
+                    });
+                    if (selected) {
+                        this.handleFile(selected);
+                        return;
+                    }
+                }
+            } catch (err) {
+                console.warn('使用 Tauri 对话框选择文件失败，回退到浏览器文件输入:', err);
+            }
             document.getElementById('fileInput').click();
         });
         
@@ -195,18 +250,19 @@ class LogWhisperApp {
             this.logDebug(`🎯 虚拟滚动: ${e.target.checked ? '启用' : '禁用'}`);
         });
         
-        document.getElementById('chunkLoadingEnabled').addEventListener('change', (e) => {
-            this.chunkLoading.enabled = e.target.checked;
-            this.logDebug(`📦 分块加载: ${e.target.checked ? '启用' : '禁用'}`);
-        });
+        // 注释掉原有的分块加载控制，因为现在由Rust后端处理
+        // document.getElementById('chunkLoadingEnabled').addEventListener('change', (e) => {
+        //     this.chunkLoading.enabled = e.target.checked;
+        //     this.logDebug(`📦 分块加载: ${e.target.checked ? '启用' : '禁用'}`);
+        // });
         
-        document.getElementById('chunkSize').addEventListener('change', (e) => {
-            this.chunkLoading.chunkSize = parseInt(e.target.value) || 100;
-            this.logDebug(`📦 块大小设置为: ${this.chunkLoading.chunkSize}`);
-        });
+        // document.getElementById('chunkSize').addEventListener('change', (e) => {
+        //     this.chunkLoading.chunkSize = parseInt(e.target.value) || 100;
+        //     this.logDebug(`📦 块大小设置为: ${this.chunkLoading.chunkSize}`);
+        // });
         
         document.getElementById('cleanupMemoryBtn').addEventListener('click', () => {
-            this.cleanupMemory();
+            this.cleanupMemoryViaBackend(); // 更改为调用后端内存清理API
         });
         
         // 键盘快捷键
@@ -289,80 +345,60 @@ class LogWhisperApp {
         });
     }
     
-    async handleFile(file) {
-        if (!this.isValidFile(file)) {
-            this.showError('不支持的文件格式，请选择 .log 或 .txt 文件');
+    async handleFile(fileOrPath) {
+        // 统一处理：支持传入 File 对象或 绝对路径字符串
+        const filePath = typeof fileOrPath === 'string' ? fileOrPath : (fileOrPath.path || fileOrPath.name);
+        // 使用后端API验证文件
+        const validationResult = await this.validateFileWithBackend(filePath);
+        if (!validationResult.valid) {
+            this.showError(validationResult.error || '不支持的文件格式，请选择 .log 或 .txt 文件');
             return;
         }
         
         // 大文件检测和警告
-        const fileSize = file.size;
+        const fileSize = validationResult.fileSize || (typeof fileOrPath !== 'string' ? fileOrPath.size : 0);
         const fileSizeMB = (fileSize / (1024 * 1024)).toFixed(2);
         
         this.info('FILE_OPERATION', `文件大小: ${fileSizeMB}MB`, { fileSize, fileSizeMB });
         
-        // 检查内存使用情况
-        this.checkMemoryUsage();
-        
-        if (fileSize > this.memoryManager.maxMemoryUsage) {
-            const maxMB = (this.memoryManager.maxMemoryUsage / (1024 * 1024)).toFixed(0);
-            this.showError(`文件过大（${fileSizeMB}MB），超过限制（${maxMB}MB）。请使用专业日志分析工具。`);
-            return;
-        }
-        
-        // 大文件警告和优化提示
-        if (fileSize > 50 * 1024 * 1024) { // 50MB
+        // 大文件警告
+        if (fileSize > 100 * 1024 * 1024) { // 100MB
             const confirmed = confirm(
                 `正在加载大文件（${fileSizeMB}MB）。\n` +
-                `将自动启用大文件优化模式：\n` +
-                `- 虚拟滚动\n` +
-                `- 分块加载\n` +
-                `- 内存管理\n\n` +
+                `将使用Rust后端的高性能解析和分块加载。\n\n` +
                 `继续加载吗？`
             );
             
             if (!confirmed) {
                 return;
             }
-            
-            // 强制启用优化模式
-            this.enableLargeFileMode();
         }
         
         this.showLoading('正在解析文件...');
-        this.info('FILE_OPERATION', `开始处理文件: ${file.name}`, { 
-            fileName: file.name, 
-            fileSize: file.size, 
-            formattedSize: this.formatFileSize(file.size) 
+        const displayName = typeof fileOrPath === 'string' ? this.basename(filePath) : fileOrPath.name;
+        this.info('FILE_OPERATION', `开始处理文件: ${displayName}`, { 
+            fileName: displayName, 
+            fileSize: fileSize, 
+            formattedSize: this.formatFileSize(fileSize) 
         });
         
         const startTime = performance.now();
         
         try {
-            // 直接读取文件内容进行解析
-            this.debug('FILE_OPERATION', '开始读取文件内容');
-            const fileContent = await this.readFileContent(file);
-            const lines = fileContent.split('\n').filter(line => line.trim() !== '');
+            // 先初始化文件分块元数据
+            this.debug('BACKEND_API', '初始化文件分块...');
+            const chunkMetadata = await this.initializeFileChunks(filePath);
             
-            this.info('FILE_OPERATION', `文件读取完成，总行数: ${lines.length}`, { lineCount: lines.length });
-            
-            // 解析真实日志
-            this.debug('PARSER', `开始解析日志，使用插件: ${this.currentPlugin}`);
-            
-            // 检查是否需要分块处理
-            if (lines.length > 1000 && this.chunkLoading.enabled) {
-                this.info('CHUNK_LOADING', `大文件检测，启用分块处理: ${lines.length} 行`, { lineCount: lines.length });
-                await this.parseLargeFile(lines);
-            } else {
-                const parseResults = this.parseRealLogLines(lines);
-                this.currentEntries = parseResults;
+            if (chunkMetadata) {
+                // 使用Rust后端的分块加载
+                await this.loadFileWithBackend(chunkMetadata);
             }
             
             const parseTime = performance.now() - startTime;
             this.debugStats.parseCount++;
             this.debugStats.totalParseTime += parseTime;
             
-            this.currentFile = file;
+            this.currentFile = { path: filePath, name: displayName, size: fileSize };
             
             this.info('PARSER', `解析成功: ${this.currentEntries.length} 行日志，耗时 ${Math.round(parseTime)}ms`, { 
                 entryCount: this.currentEntries.length, 
@@ -373,12 +409,9 @@ class LogWhisperApp {
             
             this.renderResults();
             this.updateStatus(`已加载 ${this.currentEntries.length} 行日志`);
-            this.updateFileInfo(file);
+            this.updateFileInfo({ name: displayName, size: fileSize });
             
             this.updateDebugStats();
-            
-            // 更新内存使用情况
-            this.updateMemoryUsage();
             
         } catch (error) {
             const parseTime = performance.now() - startTime;
@@ -390,538 +423,280 @@ class LogWhisperApp {
         }
     }
     
-    isValidFile(file) {
-        const validExtensions = ['.log', '.txt'];
-        const fileName = file.name.toLowerCase();
-        return validExtensions.some(ext => fileName.endsWith(ext));
-    }
+    // ===== Rust后端分块加载API =====
     
-    async readFileContent(file) {
-        return new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                resolve(e.target.result);
-            };
-            reader.onerror = (e) => {
-                reject(new Error('文件读取失败'));
-            };
-            reader.readAsText(file, 'UTF-8');
-        });
-    }
-    
-    async invokeTauriCommand(command, args) {
-        if (typeof window.__TAURI__ !== 'undefined') {
-            return await window.__TAURI__.tauri.invoke(command, args);
-        } else {
-            // 模拟模式
-            return this.mockTauriCommand(command, args);
-        }
-    }
-    
-    mockTauriCommand(command, args) {
-        // 模拟Tauri命令响应
-        switch (command) {
-            case 'parse_file':
-                return this.mockParseFile(args);
-            case 'get_available_plugins':
-                return this.mockGetPlugins();
-            default:
-                return { success: false, error: 'Command not implemented in mock mode' };
-        }
-    }
-    
-    async mockParseFile(args) {
-        console.log('🔍 开始解析真实文件:', args.file_path);
-        console.log('📋 使用插件:', args.plugin_name || 'Auto');
-        
-        const startTime = performance.now();
-        
+    /**
+     * 初始化文件分块元数据
+     */
+    async initializeFileChunks(filePath) {
         try {
-            // 读取真实文件内容
-            const response = await fetch(args.file_path);
-            if (!response.ok) {
-                throw new Error(`无法读取文件: ${response.statusText}`);
-            }
-            
-            const fileContent = await response.text();
-            const lines = fileContent.split('\n').filter(line => line.trim() !== '');
-            
-            console.log('📁 文件读取完成，总行数:', lines.length);
-            
-            // 解析真实日志
-            const parseResults = this.parseRealLogLines(lines);
-            
-            const endTime = performance.now();
-            const parseTime = Math.round(endTime - startTime);
-            
-            console.log('✅ 真实解析完成，耗时:', parseTime + 'ms');
-            console.log('📊 解析统计:', {
-                总行数: parseResults.length,
-                成功行数: parseResults.filter(r => !r.is_error).length,
-                错误行数: parseResults.filter(r => r.is_error).length
+            this.debug('BACKEND_API', `初始化文件分块: ${filePath}`);
+            const metadata = await this.invokeTauriCommand('initialize_file_chunks', {
+                file_path: filePath
             });
             
-            return {
-                success: true,
-                result_set: {
-                    results: parseResults,
-                    total_stats: {
-                        total_lines: parseResults.length,
-                        success_lines: parseResults.filter(r => !r.is_error).length,
-                        error_lines: parseResults.filter(r => r.is_error).length,
-                        warning_lines: parseResults.filter(r => r.is_warning).length,
-                        total_blocks: parseResults.reduce((sum, r) => sum + r.rendered_blocks.length, 0),
-                        total_parse_time_ms: parseTime,
-                        avg_parse_time_per_line_ms: Math.round(parseTime / parseResults.length * 100) / 100
-                    },
-                    config: {
-                        plugin_name: args.plugin_name || 'Auto',
-                        enable_cache: true,
-                        max_file_size: 52428800,
-                        timeout_ms: 30000
-                    }
-                },
-                error: null
-            };
-        } catch (error) {
-            console.error('❌ 文件解析失败:', error);
-            return {
-                success: false,
-                result_set: null,
-                error: error.message
-            };
-        }
-    }
-    
-    parseRealLogLines(lines) {
-        const results = [];
-        
-        lines.forEach((line, index) => {
-            if (line.trim() === '') return; // 跳过空行
+            this.backendChunkLoader.initialized = true;
+            this.backendChunkLoader.currentFileMetadata = metadata;
+            this.backendChunkLoader.totalChunks = metadata.total_chunks;
+            this.backendChunkLoader.chunkSize = metadata.chunk_size;
             
-            const parsed = this.parseLogLine(line, index + 1);
-            if (parsed) {
-                results.push(parsed);
+            this.info('BACKEND_API', `文件分块初始化成功: ${metadata.total_chunks} 块`, metadata);
+            return metadata;
+        } catch (error) {
+            this.error('BACKEND_API', `文件分块初始化失败: ${error.message}`);
+            return null;
+        }
+    }
+    
+    /**
+     * 加载指定的数据块
+     */
+    async loadChunks(chunkIndices, priority = 'Normal') {
+        try {
+            const request = {
+                file_path: this.backendChunkLoader.currentFileMetadata?.file_path || '',
+                chunk_indices: chunkIndices,
+                plugin_name: this.currentPlugin,
+                priority: priority
+            };
+            
+            this.debug('BACKEND_API', `加载数据块: [${chunkIndices.join(', ')}]`);
+            const response = await this.invokeTauriCommand('load_chunks', request);
+            
+            if (response.success) {
+                // 更新已加载块集合
+                chunkIndices.forEach(index => {
+                    this.backendChunkLoader.loadedChunks.add(index);
+                });
+                
+                this.info('BACKEND_API', `数据块加载成功: ${Object.keys(response.chunks).length} 块`);
+                return response;
+            } else {
+                throw new Error(response.error || '数据块加载失败');
             }
+        } catch (error) {
+            this.error('BACKEND_API', `数据块加载失败: ${error.message}`);
+            throw error;
+        }
+    }
+    
+    /**
+     * 使用Rust后端加载文件
+     */
+    async loadFileWithBackend(chunkMetadata) {
+        this.info('BACKEND_API', '使用Rust后端分块加载文件');
+        
+        // 先加载第一个块以快速显示内容
+        const firstChunkResponse = await this.loadChunks([0], 'Immediate');
+        
+        if (firstChunkResponse.chunks[0]) {
+            this.currentEntries = firstChunkResponse.chunks[0];
+            this.renderResults();
+            this.updateStatus(`已加载第1块，总共${chunkMetadata.total_chunks}块`);
+        }
+        
+        // 预加载接下来的几个块
+        if (chunkMetadata.total_chunks > 1) {
+            const preloadChunks = [];
+            for (let i = 1; i < Math.min(6, chunkMetadata.total_chunks); i++) {
+                preloadChunks.push(i);
+            }
+            
+            if (preloadChunks.length > 0) {
+                this.loadChunks(preloadChunks, 'High').catch(error => {
+                    this.warn('BACKEND_API', `预加载块失败: ${error.message}`);
+                });
+            }
+        }
+        
+        // 初始化虚拟滚动，并设置需要时加载其他块
+        if (this.virtualScroll.enabled) {
+            this.setupBackendVirtualScroll(chunkMetadata);
+        }
+    }
+    
+    /**
+     * 设置后端支持的虚拟滚动
+     */
+    setupBackendVirtualScroll(chunkMetadata) {
+        this.virtualScroll.totalItems = chunkMetadata.total_lines;
+        
+        // 设置滚动监听，在需要时加载对应的块
+        this.setupScrollListener(() => {
+            this.checkAndLoadRequiredChunksFromBackend();
         });
-        
-        return results;
     }
     
-    // 大文件分块处理
-    async parseLargeFile(lines) {
-        this.logDebug(`🚀 开始分块处理大文件: ${lines.length} 行`);
+    /**
+     * 检查并加载需要的数据块（后端版本）
+     */
+    async checkAndLoadRequiredChunksFromBackend() {
+        if (!this.backendChunkLoader.initialized) return;
         
-        // 根据文件大小动态调整块大小
-        this.calculateOptimalChunkSize(lines.length);
+        const startChunk = Math.floor(this.virtualScroll.startIndex / this.backendChunkLoader.chunkSize);
+        const endChunk = Math.floor(this.virtualScroll.endIndex / this.backendChunkLoader.chunkSize);
         
-        // 计算总块数
-        this.chunkLoading.totalChunks = Math.ceil(lines.length / this.chunkLoading.chunkSize);
-        this.logDebug(`📊 总块数: ${this.chunkLoading.totalChunks}, 块大小: ${this.chunkLoading.chunkSize}`);
-        
-        // 初始化空数组
-        this.currentEntries = new Array(lines.length);
-        
-        // 先处理第一块以快速显示
-        await this.processChunk(lines, 0);
-        
-        // 异步处理其他块
-        this.processRemainingChunks(lines);
-        
-        // 启动定期检查
-        this.startChunkCheckInterval();
-    }
-    
-    // 启动定期检查数据块加载状态
-    startChunkCheckInterval() {
-        if (this.chunkLoading.checkInterval) {
-            clearInterval(this.chunkLoading.checkInterval);
-        }
-        
-        this.chunkLoading.checkInterval = setInterval(() => {
-            this.checkAndLoadRequiredChunks();
-        }, 500); // 每500ms检查一次
-    }
-    
-    // 停止定期检查
-    stopChunkCheckInterval() {
-        if (this.chunkLoading.checkInterval) {
-            clearInterval(this.chunkLoading.checkInterval);
-            this.chunkLoading.checkInterval = null;
-        }
-    }
-    
-    // 检查并加载需要的数据块
-    checkAndLoadRequiredChunks() {
-        if (!this.virtualScroll.enabled || this.chunkLoading.totalChunks === 0) return;
-        
-        // 计算当前可见范围需要的数据块
-        const startChunk = Math.floor(this.virtualScroll.startIndex / this.chunkLoading.chunkSize);
-        const endChunk = Math.floor(this.virtualScroll.endIndex / this.chunkLoading.chunkSize);
-        
-        // 检查哪些块需要加载
         const chunksToLoad = [];
         for (let chunkIndex = startChunk; chunkIndex <= endChunk; chunkIndex++) {
-            if (!this.chunkLoading.loadedChunks.has(chunkIndex)) {
+            if (!this.backendChunkLoader.loadedChunks.has(chunkIndex)) {
                 chunksToLoad.push(chunkIndex);
             }
         }
         
         if (chunksToLoad.length > 0) {
-            this.logDebug(`🔍 定期检查发现需要加载的数据块: ${chunksToLoad.join(', ')}`);
-            this.loadChunksAsync(chunksToLoad);
-        }
-    }
-    
-    // 计算最优块大小
-    calculateOptimalChunkSize(totalLines) {
-        if (!this.chunkLoading.adaptiveChunkSize) return;
-        
-        // 根据文件大小动态调整块大小
-        if (totalLines > 100000) {
-            // 超大文件：使用较小的块大小
-            this.chunkLoading.chunkSize = Math.max(50, Math.min(200, Math.floor(totalLines / 1000)));
-        } else if (totalLines > 10000) {
-            // 大文件：使用中等块大小
-            this.chunkLoading.chunkSize = Math.max(100, Math.min(500, Math.floor(totalLines / 100)));
-        } else {
-            // 普通文件：使用默认块大小
-            this.chunkLoading.chunkSize = 100;
-        }
-        
-        this.logDebug(`🎯 自适应块大小: ${this.chunkLoading.chunkSize} (总行数: ${totalLines})`);
-    }
-    
-    async processChunk(lines, chunkIndex) {
-        const startIndex = chunkIndex * this.chunkLoading.chunkSize;
-        const endIndex = Math.min(startIndex + this.chunkLoading.chunkSize, lines.length);
-        const chunkLines = lines.slice(startIndex, endIndex);
-        
-        this.logDebug(`⚙️ 处理数据块 ${chunkIndex}: ${startIndex}-${endIndex}`);
-        
-        // 解析当前块
-        const chunkResults = this.parseRealLogLines(chunkLines);
-        
-        // 将结果放入对应位置
-        chunkResults.forEach((result, index) => {
-            this.currentEntries[startIndex + index] = result;
-        });
-        
-        // 标记为已加载
-        this.chunkLoading.loadedChunks.add(chunkIndex);
-        
-        this.logDebug(`✅ 数据块 ${chunkIndex} 处理完成，包含 ${chunkResults.length} 条日志`);
-        
-        // 如果是第一块，立即渲染
-        if (chunkIndex === 0) {
-            this.renderResults();
-        }
-        
-        // 如果当前可见区域包含这个块，立即重新渲染
-        if (this.virtualScroll.enabled) {
-            const chunkStart = startIndex;
-            const chunkEnd = endIndex;
-            
-            if (chunkStart < this.virtualScroll.endIndex && chunkEnd > this.virtualScroll.startIndex) {
-                this.logDebug(`🔄 数据块 ${chunkIndex} 在可见区域内，重新渲染`);
-                this.renderVisibleItems();
-            }
-        }
-    }
-    
-    async processRemainingChunks(lines) {
-        // 使用 requestIdleCallback 在浏览器空闲时处理其他块
-        const processNextChunk = () => {
-            if (this.chunkLoading.loadedChunks.size >= this.chunkLoading.totalChunks) {
-                this.logDebug(`🎉 所有数据块处理完成`);
-                return;
-            }
-            
-            // 找到下一个未处理的块
-            let nextChunk = -1;
-            for (let i = 0; i < this.chunkLoading.totalChunks; i++) {
-                if (!this.chunkLoading.loadedChunks.has(i)) {
-                    nextChunk = i;
-                    break;
-                }
-            }
-            
-            if (nextChunk >= 0) {
-                this.processChunk(lines, nextChunk).then(() => {
-                    // 使用 requestIdleCallback 继续处理下一个块
-                    if (window.requestIdleCallback) {
-                        requestIdleCallback(processNextChunk);
-                    } else {
-                        setTimeout(processNextChunk, 0);
-                    }
-                });
-            }
-        };
-        
-        // 开始处理剩余块
-        if (window.requestIdleCallback) {
-            requestIdleCallback(processNextChunk);
-        } else {
-            setTimeout(processNextChunk, 0);
-        }
-    }
-    
-    parseLogLine(line, lineNumber) {
-        // 解析Spring Boot日志格式: 2025-09-29T06:18:55.467Z  INFO 1 --- [nio-8080-exec-1] c.l.p.p.p.w.WfCalculateDueDateService    : message
-        const springBootPattern = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z)\s+(\w+)\s+(\d+)\s+---\s+\[([^\]]+)\]\s+([^\s:]+)\s*:\s*(.*)$/;
-        const match = line.match(springBootPattern);
-        
-        if (match) {
-            const [, timestamp, level, pid, thread, logger, message] = match;
-            const isError = level === 'ERROR';
-            const isWarning = level === 'WARN';
-            
-            return {
-                original: {
-                    line_number: lineNumber,
-                    timestamp: timestamp,
-                    level: level,
-                    content: line,
-                    raw_line: line
-                },
-                rendered_blocks: [
-                    {
-                        id: `spring_boot_${lineNumber}`,
-                        block_type: isError ? 'Error' : isWarning ? 'Warning' : 'Info',
-                        title: 'Spring Boot 日志',
-                        content: line,
-                        formatted_content: this.formatSpringBootLog(timestamp, level, pid, thread, logger, message),
-                        is_copyable: true,
-                        metadata: {
-                            line_start: lineNumber,
-                            line_end: lineNumber,
-                            char_start: 0,
-                            char_end: line.length,
-                            confidence: 0.95
-                        }
-                    }
-                ],
-                is_error: isError,
-                is_warning: isWarning,
-                stats: {
-                    parse_time_ms: Math.round(5 + Math.random() * 10),
-                    block_count: 1,
-                    avg_confidence: 0.95,
-                    success: true
-                }
-            };
-        }
-        
-        // 解析其他格式的日志
-        return this.parseOtherLogFormats(line, lineNumber);
-    }
-    
-    formatSpringBootLog(timestamp, level, pid, thread, logger, message) {
-        const levelEmoji = {
-            'INFO': 'ℹ️',
-            'WARN': '⚠️', 
-            'ERROR': '❌',
-            'DEBUG': '🐛',
-            'TRACE': '🔍'
-        };
-        
-        const emoji = levelEmoji[level] || '📝';
-        
-        return `${emoji} Spring Boot 日志
-
-⏰ 时间: ${timestamp}
-📊 级别: ${level}
-🔢 进程ID: ${pid}
-🧵 线程: ${thread}
-📝 记录器: ${logger}
-💬 消息: ${message}`;
-    }
-    
-    parseOtherLogFormats(line, lineNumber) {
-        // 检查是否是JSON格式
-        if (line.trim().startsWith('{') && line.trim().endsWith('}')) {
+            this.debug('BACKEND_API', `需要加载的数据块: [${chunksToLoad.join(', ')}]`);
             try {
-                const jsonData = JSON.parse(line);
-                return {
-                original: {
-                        line_number: lineNumber,
-                    timestamp: null,
-                        level: 'DEBUG',
-                        content: line,
-                        raw_line: line
-                },
-                rendered_blocks: [
-                    {
-                            id: `json_${lineNumber}`,
-                            block_type: 'Json',
-                            title: 'JSON 数据',
-                            content: line,
-                            formatted_content: `📄 JSON 数据
-
-\`\`\`json
-${JSON.stringify(jsonData, null, 2)}
-\`\`\``,
-                        is_copyable: true,
-                        metadata: {
-                                line_start: lineNumber,
-                                line_end: lineNumber,
-                                char_start: 0,
-                                char_end: line.length,
-                            confidence: 0.9
-                        }
-                    }
-                ],
-                is_error: false,
-                is_warning: false,
-                stats: {
-                        parse_time_ms: Math.round(3 + Math.random() * 5),
-                    block_count: 1,
-                    avg_confidence: 0.9,
-                    success: true
-                }
-                };
-            } catch (e) {
-                // 不是有效的JSON，继续其他解析
+                const response = await this.loadChunks(chunksToLoad, 'Normal');
+                
+                // 将新加载的数据合并到当前条目中
+                this.mergeChunksToCurrentEntries(response.chunks);
+                this.renderVisibleItems();
+            } catch (error) {
+                this.error('BACKEND_API', `动态加载数据块失败: ${error.message}`);
             }
         }
-        
-        // 检查是否是SQL查询
-        if (line.includes('Preparing:') || line.includes('SELECT') || line.includes('INSERT') || line.includes('UPDATE') || line.includes('DELETE')) {
-            return {
-                original: {
-                    line_number: lineNumber,
-                    timestamp: null,
-                    level: 'DEBUG',
-                    content: line,
-                    raw_line: line
-                },
-                rendered_blocks: [
-                    {
-                        id: `sql_${lineNumber}`,
-                        block_type: 'Sql',
-                        title: 'SQL 查询',
-                        content: line,
-                        formatted_content: `🔍 SQL 查询
-
-\`\`\`sql
-${line.replace(/Preparing:\s*/, '')}
-\`\`\``,
-                        is_copyable: true,
-                        metadata: {
-                            line_start: lineNumber,
-                            line_end: lineNumber,
-                            char_start: 0,
-                            char_end: line.length,
-                            confidence: 0.85
-                        }
-                    }
-                ],
-                is_error: false,
-                is_warning: false,
-                stats: {
-                    parse_time_ms: Math.round(4 + Math.random() * 6),
-                    block_count: 1,
-                    avg_confidence: 0.85,
-                    success: true
-                }
-            };
-        }
-        
-        // 检查是否是异常
-        if (line.includes('Exception') || line.includes('Error') || line.includes('Failed')) {
-            return {
-                original: {
-                    line_number: lineNumber,
-                    timestamp: null,
-                    level: 'ERROR',
-                    content: line,
-                    raw_line: line
-                },
-                rendered_blocks: [
-                    {
-                        id: `exception_${lineNumber}`,
-                        block_type: 'Error',
-                        title: 'Java 异常',
-                        content: line,
-                        formatted_content: `❌ Java 异常
-
-🏷️ 异常信息: ${line}
-
-🔍 建议检查:
-• 参数是否正确
-• 资源是否可用
-• 权限是否充足`,
-                        is_copyable: true,
-                        metadata: {
-                            line_start: lineNumber,
-                            line_end: lineNumber,
-                            char_start: 0,
-                            char_end: line.length,
-                            confidence: 0.9
-                        }
-                    }
-                ],
-                is_error: true,
-                is_warning: false,
-                stats: {
-                    parse_time_ms: Math.round(6 + Math.random() * 8),
-                    block_count: 1,
-                    avg_confidence: 0.9,
-                    success: true
-                }
-            };
-            }
-        
-        // 默认处理为普通文本
-        return {
-            original: {
-                line_number: lineNumber,
-                timestamp: null,
-                level: 'INFO',
-                content: line,
-                raw_line: line
-            },
-            rendered_blocks: [
-                {
-                    id: `text_${lineNumber}`,
-                    block_type: 'Raw',
-                    title: '原始文本',
-                    content: line,
-                    formatted_content: `📝 原始文本
-
-${line}`,
-                    is_copyable: true,
-                    metadata: {
-                        line_start: lineNumber,
-                        line_end: lineNumber,
-                        char_start: 0,
-                        char_end: line.length,
-                        confidence: 0.7
-                    }
-                }
-            ],
-            is_error: false,
-            is_warning: false,
-            stats: {
-                parse_time_ms: Math.round(2 + Math.random() * 3),
-                block_count: 1,
-                avg_confidence: 0.7,
-                success: true
-            }
-        };
     }
     
-    mockGetPlugins() {
-        return {
-            plugins: [
-                { name: 'Auto', description: '自动选择最佳插件', enabled: true },
-                { name: 'JavaLog', description: 'Java 应用日志解析器', enabled: true },
-                { name: 'MyBatis', description: 'MyBatis SQL 解析器', enabled: true },
-                { name: 'JSON', description: 'JSON 修复和格式化', enabled: true },
-                { name: 'Raw', description: '原始文本显示', enabled: true }
-            ]
-        };
+    /**
+     * 将新加载的数据块合并到当前条目
+     */
+    mergeChunksToCurrentEntries(chunks) {
+        Object.entries(chunks).forEach(([chunkIndex, chunkData]) => {
+            const startIndex = parseInt(chunkIndex) * this.backendChunkLoader.chunkSize;
+            chunkData.forEach((entry, index) => {
+                this.currentEntries[startIndex + index] = entry;
+            });
+        });
     }
+    
+    /**
+     * 获取内存信息（后端API）
+     */
+    async getMemoryInfoFromBackend() {
+        try {
+            const memoryInfo = await this.invokeTauriCommand('get_memory_info', {});
+            this.debug('BACKEND_API', '获取内存信息成功', memoryInfo);
+            return memoryInfo;
+        } catch (error) {
+            this.error('BACKEND_API', `获取内存信息失败: ${error.message}`);
+            return null;
+        }
+    }
+    
+    /**
+     * 清理内存（后端API）
+     */
+    async cleanupMemoryViaBackend() {
+        try {
+            this.info('BACKEND_API', '开始后端内存清理...');
+            const cleanedCount = await this.invokeTauriCommand('cleanup_memory', {});
+            
+            this.info('BACKEND_API', `后端内存清理完成: 清理了 ${cleanedCount} 个块`);
+            this.showToast(`内存清理完成，清理了 ${cleanedCount} 个数据块`);
+            
+            // 更新性能统计
+            this.updatePerformanceStatsFromBackend();
+        } catch (error) {
+            this.error('BACKEND_API', `后端内存清理失败: ${error.message}`);
+            this.showToast('内存清理失败，请查看控制台');
+        }
+    }
+    
+    /**
+     * 从后端更新性能统计
+     */
+    async updatePerformanceStatsFromBackend() {
+        const memoryInfo = await this.getMemoryInfoFromBackend();
+        if (memoryInfo) {
+            // 更新性能面板显示
+            document.getElementById('memoryUsage').textContent = 
+                this.formatFileSize(memoryInfo.current_usage);
+            document.getElementById('cachedChunks').textContent = 
+                `${memoryInfo.cached_chunks} / ${memoryInfo.max_cached_chunks}`;
+            document.getElementById('gcCount').textContent = memoryInfo.gc_count;
+        }
+    }
+    
+    // ===== 结束 Rust后端分块加载API =====
+    
+    /**
+     * 使用后端API验证文件
+     */
+    async validateFileWithBackend(filePath) {
+        try {
+            this.debug('FILE_VALIDATION', `使用后端API验证文件: ${filePath}`);
+            
+            const response = await this.invokeTauriCommand('validate_file', {
+                file_path: filePath
+            });
+            
+            if (response.valid) {
+                this.debug('FILE_VALIDATION', `后端验证通过: ${filePath} (${this.formatFileSize(response.file_size || 0)})`);
+            return {
+                    valid: true,
+                    fileSize: response.file_size || 0,
+                    fileType: response.file_type
+                };
+            } else {
+                this.warn('FILE_VALIDATION', `后端验证失败: ${response.error}`);
+            return {
+                    valid: false,
+                    error: response.error
+                };
+            }
+        } catch (error) {
+            this.error('FILE_VALIDATION', `后端验证API调用失败: ${error.message}`);
+            return { valid: false, error: error.message };
+        }
+    }
+    
+    /**
+     * 前端文件验证（备用方案）
+     */
+    isValidFile(file) {
+        if (!file) {
+            return false;
+        }
+        
+        // 检查文件类型
+        const validExtensions = ['.log', '.txt'];
+        const fileName = file.name.toLowerCase();
+        const hasValidExtension = validExtensions.some(ext => fileName.endsWith(ext));
+        
+        if (!hasValidExtension) {
+            this.debug('FILE_VALIDATION', `文件扩展名无效: ${file.name}`);
+            return false;
+        }
+        
+        // 检查文件大小（可选）
+        const maxSize = 1024 * 1024 * 1024; // 1GB
+        if (file.size > maxSize) {
+            this.warn('FILE_VALIDATION', `文件过大: ${this.formatFileSize(file.size)}`);
+            // 不直接拒绝，让用户决定
+        }
+        
+        this.debug('FILE_VALIDATION', `前端验证通过: ${file.name} (${this.formatFileSize(file.size)})`);
+        return true;
+    }
+    
+    async invokeTauriCommand(command, args) {
+        // 检查 Tauri 环境
+        if (typeof window.__TAURI__ !== 'undefined' && window.__TAURI__.tauri && window.__TAURI__.tauri.invoke) {
+            try {
+                return await window.__TAURI__.tauri.invoke(command, args);
+            } catch (error) {
+                console.error(`Tauri 命令执行失败: ${command}`, error);
+                throw error;
+            }
+        }
+        
+        // 如果不在 Tauri 环境中，提供更友好的错误信息
+        const message = '未检测到 Tauri 运行环境。请使用以下方式启动应用：\n\n1. 运行 `cargo tauri dev` 启动开发模式\n2. 运行 `cargo tauri build` 构建应用\n3. 不要直接用浏览器打开 index.html';
+        console.error(message);
+        this.showError(message);
+        throw new Error(message);
+    }
+    
     
     renderResults() {
         if (this.virtualScroll.enabled) {
@@ -1241,6 +1016,13 @@ ${line}`,
         }
         
         return `${size.toFixed(1)} ${units[unitIndex]}`;
+    }
+
+    basename(path) {
+        if (!path) return '';
+        const sep = path.includes('\\') ? '\\' : '/';
+        const parts = path.split(sep);
+        return parts[parts.length - 1];
     }
     
     escapeHtml(text) {

@@ -1,12 +1,13 @@
 {
+  "$schema": "https://schema.tauri.app/config/2.0",
   "productName": "LogWhisper",
   "version": "1.0.0",
+  "identifier": "com.logwhisper.app",
   "build": {
     "beforeDevCommand": "",
     "beforeBuildCommand": "",
     "frontendDist": "../src"
   },
-  "identifier": "com.logwhisper.app",
   "app": {
     "windows": [
       {
@@ -16,5 +17,6 @@
       }
     ]
   },
+  "bundle": {},
   "plugins": {}
 }

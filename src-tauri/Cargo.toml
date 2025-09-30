@@ -50,6 +50,9 @@ time = "0.3"
 # 错误处理
 color-eyre = "0.6"
 
+# UUID生成
+uuid = { version = "1.6", features = ["v4"] }
+
 [features]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]

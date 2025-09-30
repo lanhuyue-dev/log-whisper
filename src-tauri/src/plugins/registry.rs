@@ -4,7 +4,7 @@ use crate::models::LogEntry;
 use crate::plugins::{
     LogRenderer, PluginInfo, PluginStatus, PluginResult
 };
-use super::{MyBatisRenderer, JsonRepairRenderer, ErrorHighlighterRenderer, RawRenderer};
+use super::{MyBatisRenderer, JsonRepairRenderer, ErrorHighlighterRenderer, RawRenderer, DockerJsonRenderer};
 
 /// 插件注册中心
 pub struct PluginRegistry {
@@ -41,6 +41,18 @@ impl PluginRegistry {
         
         self.plugins.insert("MyBatis".to_string(), mybatis);
         self.plugin_info.insert("MyBatis".to_string(), mybatis_info);
+        
+        // 注册Docker JSON插件
+        let docker_json = Arc::new(RwLock::new(DockerJsonRenderer::new()));
+        let docker_json_info = PluginInfo::new(
+            "DockerJSON".to_string(),
+            "Docker容器JSON日志解析器".to_string(),
+            "1.0.0".to_string(),
+            "LogWhisper Team".to_string(),
+        ).with_priority(15);
+        
+        self.plugins.insert("DockerJSON".to_string(), docker_json);
+        self.plugin_info.insert("DockerJSON".to_string(), docker_json_info);
         
         // 注册JSON修复插件
         let json_repair = Arc::new(RwLock::new(JsonRepairRenderer::new()));

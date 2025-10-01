@@ -350,10 +350,12 @@ body {
 
 .virtual-log-item {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     padding: 8px;
     border-bottom: 1px solid var(--border-primary);
     transition: background-color 0.2s ease;
+    min-height: 120px;
+    overflow: hidden;
 }
 
 .virtual-log-item:hover {
@@ -373,6 +375,55 @@ body {
 .virtual-log-item.info {
     border-left: 3px solid var(--color-info);
     background-color: var(--block-info-bg);
+}
+
+/* 行号列样式 - 参考EmEditor */
+.line-number-column {
+    color: var(--text-tertiary);
+    min-width: 80px;
+    flex-shrink: 0;
+    text-align: right;
+    padding-right: 12px;
+    font-size: 12px;
+    line-height: 1.4;
+    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+    user-select: none;
+    background-color: var(--bg-tertiary);
+    border-right: 1px solid var(--border-primary);
+    margin-right: 8px;
+    padding: 8px 12px 8px 8px;
+    border-radius: 4px 0 0 4px;
+}
+
+/* 日志内容列样式 */
+.log-content-column {
+    flex: 1;
+    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+    font-size: 13px;
+    line-height: 1.4;
+    white-space: pre-wrap;
+    word-break: break-all;
+    overflow-wrap: anywhere;
+    color: var(--text-primary);
+    padding: 8px;
+    background-color: var(--bg-content);
+    border-radius: 0 4px 4px 0;
+}
+
+/* 解析内容列样式 */
+.parsed-content-column {
+    flex: 1;
+    padding: 8px;
+    background-color: var(--bg-content);
+    border-radius: 0 4px 4px 0;
+}
+
+/* 加载内容列样式 */
+.loading-content-column {
+    flex: 1;
+    padding: 8px;
+    background-color: var(--bg-content);
+    border-radius: 0 4px 4px 0;
 }
 
 /* 性能优化样式 */

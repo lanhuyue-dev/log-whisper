@@ -1574,9 +1574,18 @@ ${line}`,
         // 防抖处理滚动事件
         let scrollTimeout;
         let isScrolling = false;
+        let lastScrollTop = 0;
         
         const handleScroll = (e) => {
-            this.virtualScroll.scrollTop = e.target.scrollTop;
+            const currentScrollTop = e.target.scrollTop;
+            
+            // 防止重复处理相同的滚动位置
+            if (Math.abs(currentScrollTop - lastScrollTop) < 1) {
+                return;
+            }
+            
+            this.virtualScroll.scrollTop = currentScrollTop;
+            lastScrollTop = currentScrollTop;
             isScrolling = true;
             
             // 清除之前的定时器
@@ -1606,8 +1615,9 @@ ${line}`,
             this.updateVirtualScroll();
         };
         
-        originalContainer._virtualContainer.addEventListener('scroll', handleScroll);
-        parsedContainer._virtualContainer.addEventListener('scroll', handleScroll);
+        // 使用passive事件监听器提高性能
+        originalContainer._virtualContainer.addEventListener('scroll', handleScroll, { passive: true });
+        parsedContainer._virtualContainer.addEventListener('scroll', handleScroll, { passive: true });
         
         // 添加滚动开始和结束事件
         originalContainer._virtualContainer.addEventListener('scrollstart', handleScrollStart);
@@ -1615,17 +1625,24 @@ ${line}`,
         parsedContainer._virtualContainer.addEventListener('scrollstart', handleScrollStart);
         parsedContainer._virtualContainer.addEventListener('scrollend', handleScrollEnd);
         
-        // 同步滚动
+        // 同步滚动 - 防止循环触发
+        let isSyncing = false;
         originalContainer._virtualContainer.addEventListener('scroll', (e) => {
+            if (isSyncing) return;
+            isSyncing = true;
             if (parsedContainer._virtualContainer.scrollTop !== e.target.scrollTop) {
                 parsedContainer._virtualContainer.scrollTop = e.target.scrollTop;
             }
+            setTimeout(() => { isSyncing = false; }, 10);
         });
         
         parsedContainer._virtualContainer.addEventListener('scroll', (e) => {
+            if (isSyncing) return;
+            isSyncing = true;
             if (originalContainer._virtualContainer.scrollTop !== e.target.scrollTop) {
                 originalContainer._virtualContainer.scrollTop = e.target.scrollTop;
             }
+            setTimeout(() => { isSyncing = false; }, 10);
         });
     }
     
@@ -1653,17 +1670,20 @@ ${line}`,
             this.debug('VIRTUAL_SCROLL', `虚拟滚动更新: 显示 ${this.virtualScroll.startIndex}-${this.virtualScroll.endIndex} / ${this.currentEntries.length}`);
             this.debug('VIRTUAL_SCROLL', `滚动位置: ${scrollTop}px, 容器高度: ${containerHeight}px, 项目高度: ${itemHeight}px, 可见项目数: ${visibleItemCount}`);
             
-            // 检查并加载需要的数据块
-            this.loadRequiredChunks();
-            
-            // 管理滚动数据
-            this.manageScrollData();
-            
-            // 渲染可见项目
-            this.renderVisibleItems();
-            
-            // 确保滚动同步
-            this.ensureScrollSync();
+            // 使用requestAnimationFrame确保DOM更新在下一帧进行
+            requestAnimationFrame(() => {
+                // 检查并加载需要的数据块
+                this.loadRequiredChunks();
+                
+                // 管理滚动数据
+                this.manageScrollData();
+                
+                // 渲染可见项目
+                this.renderVisibleItems();
+                
+                // 确保滚动同步
+                this.ensureScrollSync();
+            });
         }
     }
     
@@ -2031,9 +2051,13 @@ ${line}`,
         this.debug('VIRTUAL_SCROLL', `可见容器元素数: ${originalContainer._visibleContainer.children.length}`);
         this.debug('VIRTUAL_SCROLL', `渲染范围: ${this.virtualScroll.startIndex}-${this.virtualScroll.endIndex} / ${this.currentEntries.length}`);
         
-        // 清空可见容器
-        originalContainer._visibleContainer.innerHTML = '';
-        parsedContainer._visibleContainer.innerHTML = '';
+        // 清空可见容器 - 使用更安全的方式
+        while (originalContainer._visibleContainer.firstChild) {
+            originalContainer._visibleContainer.removeChild(originalContainer._visibleContainer.firstChild);
+        }
+        while (parsedContainer._visibleContainer.firstChild) {
+            parsedContainer._visibleContainer.removeChild(parsedContainer._visibleContainer.firstChild);
+        }
         
         // 渲染可见范围内的项目
         let renderedCount = 0;
@@ -2098,7 +2122,7 @@ ${line}`,
             padding: 8px;
             border-bottom: 1px solid var(--border-primary);
             display: flex;
-            align-items: center;
+            align-items: flex-start;
             background: linear-gradient(90deg, var(--bg-tertiary) 25%, var(--bg-secondary) 50%, var(--bg-tertiary) 75%);
             background-size: 200% 100%;
             animation: loading 1.5s infinite;
@@ -2106,11 +2130,21 @@ ${line}`,
             box-sizing: border-box;
             min-height: ${this.virtualScroll.itemHeight}px;
             color: var(--text-primary);
+            overflow: hidden;
         `;
         
         item.innerHTML = `
-            <div class="text-xs mr-2" style="color: var(--text-tertiary); min-width: 60px; flex-shrink: 0;">第 ${index + 1} 行</div>
-            <div class="flex-1">
+            <div class="line-number-column" style="
+                color: var(--text-tertiary); 
+                min-width: 80px; 
+                flex-shrink: 0; 
+                text-align: right; 
+                padding-right: 12px;
+                font-size: 12px;
+                line-height: 1.4;
+                font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            ">${index + 1}</div>
+            <div class="loading-content-column" style="flex: 1;">
                 <div class="h-4 rounded animate-pulse" style="background-color: var(--text-tertiary); margin-bottom: 4px;"></div>
                 <div class="h-3 rounded animate-pulse" style="background-color: var(--text-muted); width: 80%;"></div>
             </div>
@@ -2129,21 +2163,40 @@ ${line}`,
             padding: 8px;
             border-bottom: 1px solid var(--border-primary);
             display: flex;
-            align-items: center;
+            align-items: flex-start;
             background-color: var(--bg-content);
             color: var(--text-primary);
             width: 100%;
             box-sizing: border-box;
             min-height: ${this.virtualScroll.itemHeight}px;
             position: relative;
+            overflow: hidden;
         `;
         
         if (type === 'original') {
             // 检查原始数据是否存在
             const content = entry.original && entry.original.content ? entry.original.content : '无数据';
             item.innerHTML = `
-                <div class="text-xs mr-2" style="color: var(--text-tertiary); min-width: 60px; flex-shrink: 0;">第 ${index + 1} 行</div>
-                <div class="font-mono text-sm flex-1" style="color: var(--text-primary); word-break: break-all; overflow-wrap: anywhere;">${this.escapeHtml(content)}</div>
+                <div class="line-number-column" style="
+                    color: var(--text-tertiary); 
+                    min-width: 80px; 
+                    flex-shrink: 0; 
+                    text-align: right; 
+                    padding-right: 12px;
+                    font-size: 12px;
+                    line-height: 1.4;
+                    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+                ">${index + 1}</div>
+                <div class="log-content-column" style="
+                    color: var(--text-primary); 
+                    word-break: break-all; 
+                    overflow-wrap: anywhere;
+                    flex: 1;
+                    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+                    font-size: 13px;
+                    line-height: 1.4;
+                    white-space: pre-wrap;
+                ">${this.escapeHtml(content)}</div>
             `;
         } else {
             // 检查解析结果是否存在
@@ -2152,8 +2205,17 @@ ${line}`,
                 const title = block.title || '解析结果';
                 const content = block.content || '无内容';
                 item.innerHTML = `
-                    <div class="text-xs mr-2" style="color: var(--text-tertiary); min-width: 60px; flex-shrink: 0;">第 ${index + 1} 行</div>
-                    <div class="flex-1">
+                    <div class="line-number-column" style="
+                        color: var(--text-tertiary); 
+                        min-width: 80px; 
+                        flex-shrink: 0; 
+                        text-align: right; 
+                        padding-right: 12px;
+                        font-size: 12px;
+                        line-height: 1.4;
+                        font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+                    ">${index + 1}</div>
+                    <div class="parsed-content-column" style="flex: 1;">
                         <div class="font-semibold text-sm mb-1" style="color: var(--text-primary);">${this.escapeHtml(title)}</div>
                         <div class="text-xs" style="color: var(--text-secondary); word-break: break-all; overflow-wrap: anywhere;">${this.escapeHtml(content.substring(0, 100))}${content.length > 100 ? '...' : ''}</div>
                     </div>
@@ -2163,7 +2225,16 @@ ${line}`,
                 `;
             } else {
                 item.innerHTML = `
-                    <div class="text-xs mr-2" style="color: var(--text-tertiary); min-width: 60px; flex-shrink: 0;">第 ${index + 1} 行</div>
+                    <div class="line-number-column" style="
+                        color: var(--text-tertiary); 
+                        min-width: 80px; 
+                        flex-shrink: 0; 
+                        text-align: right; 
+                        padding-right: 12px;
+                        font-size: 12px;
+                        line-height: 1.4;
+                        font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+                    ">${index + 1}</div>
                     <div class="text-sm" style="color: var(--text-secondary);">无解析结果</div>
                 `;
             }

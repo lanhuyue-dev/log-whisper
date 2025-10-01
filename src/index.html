@@ -6,6 +6,45 @@
     <title>LogWhisper</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="style.css">
+    <!-- Tauri API 2.0 -->
+    <script>
+        // 等待页面加载完成
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log('🔍 检查 Tauri 环境...');
+            console.log('window.__TAURI__:', typeof window.__TAURI__);
+            
+            // 延迟检查，给 Tauri 更多时间初始化
+            setTimeout(() => {
+                console.log('🔍 延迟检查 Tauri 环境...');
+                console.log('window.__TAURI__ 内容:', window.__TAURI__);
+                
+                // 检查 Tauri API 是否可用
+                if (typeof window.__TAURI__ !== 'undefined' && window.__TAURI__.tauri) {
+                    console.log('✅ 检测到 Tauri 环境');
+                    console.log('Tauri API 可用:', {
+                        invoke: typeof window.__TAURI__.tauri.invoke,
+                        dialog: typeof window.__TAURI__.dialog
+                    });
+                } else {
+                    console.warn('⚠️ 未检测到 Tauri 环境，提供模拟 API');
+                    window.__TAURI__ = {
+                        tauri: {
+                            invoke: async (command, args) => {
+                                console.log(`模拟调用: ${command}`, args);
+                                throw new Error('未检测到 Tauri 运行环境，请使用桌面应用启动');
+                            }
+                        },
+                        dialog: {
+                            open: async (options) => {
+                                console.log('模拟对话框:', options);
+                                throw new Error('未检测到 Tauri 运行环境，请使用桌面应用启动');
+                            }
+                        }
+                    };
+                }
+            }, 1000); // 等待1秒
+        });
+    </script>
 </head>
 <body class="bg-gray-50">
     <div id="app" class="h-screen flex flex-col">

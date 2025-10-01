@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tauri API 简单测试</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        button { padding: 10px 20px; margin: 10px; font-size: 16px; }
+        .result { margin: 20px 0; padding: 10px; border: 1px solid #ccc; }
+        .success { background-color: #d4edda; border-color: #c3e6cb; }
+        .error { background-color: #f8d7da; border-color: #f5c6cb; }
+    </style>
+</head>
+<body>
+    <h1>Tauri API 简单测试</h1>
+    <button id="testBtn">测试 Tauri API</button>
+    <button id="testDialogBtn">测试对话框</button>
+    <div id="result"></div>
+
+    <script>
+        function showResult(message, isSuccess = true) {
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = `<div class="result ${isSuccess ? 'success' : 'error'}">${message}</div>`;
+        }
+
+        document.getElementById('testBtn').addEventListener('click', async () => {
+            try {
+                console.log('🔍 检查 Tauri 环境...');
+                console.log('window.__TAURI__:', typeof window.__TAURI__);
+                
+                if (typeof window.__TAURI__ !== 'undefined' && window.__TAURI__.tauri) {
+                    console.log('✅ 检测到 Tauri 环境');
+                    
+                    // 测试 invoke 方法
+                    const result = await window.__TAURI__.tauri.invoke('get_available_plugins');
+                    showResult(`✅ Tauri API 工作正常！<br><pre>${JSON.stringify(result, null, 2)}</pre>`, true);
+                } else {
+                    showResult('❌ 未检测到 Tauri 环境', false);
+                }
+            } catch (error) {
+                console.error('测试失败:', error);
+                showResult(`❌ 测试失败: ${error.message}`, false);
+            }
+        });
+
+        document.getElementById('testDialogBtn').addEventListener('click', async () => {
+            try {
+                if (typeof window.__TAURI__ !== 'undefined' && window.__TAURI__.dialog) {
+                    const result = await window.__TAURI__.dialog.open({
+                        multiple: false,
+                        filters: [{
+                            name: 'Log Files',
+                            extensions: ['log', 'txt']
+                        }]
+                    });
+                    showResult(`✅ 对话框测试成功！<br><pre>${JSON.stringify(result, null, 2)}</pre>`, true);
+                } else {
+                    showResult('❌ 对话框 API 不可用', false);
+                }
+            } catch (error) {
+                console.error('对话框测试失败:', error);
+                showResult(`❌ 对话框测试失败: ${error.message}`, false);
+            }
+        });
+
+        // 页面加载时自动检查
+        window.addEventListener('load', () => {
+            console.log('🔍 页面加载完成，检查 Tauri 环境...');
+            console.log('window.__TAURI__:', typeof window.__TAURI__);
+            console.log('window.__TAURI__ 内容:', window.__TAURI__);
+            
+            if (typeof window.__TAURI__ !== 'undefined' && window.__TAURI__.tauri) {
+                showResult('✅ Tauri 环境检测成功！可以开始测试。', true);
+            } else {
+                showResult('⚠️ 未检测到 Tauri 环境，请确保在 Tauri 应用中运行', false);
+            }
+        });
+    </script>
+</body>
+</html>

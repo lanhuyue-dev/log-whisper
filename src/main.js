@@ -290,8 +290,20 @@ class LogWhisperApp {
                const editorToolbar = document.getElementById('editorToolbar');
                
                if (welcomeScreen) welcomeScreen.classList.add('hidden');
-               if (logEditor) logEditor.classList.remove('hidden');
+               if (logEditor) {
+                   logEditor.classList.remove('hidden');
+                   // 移除任何强制设置的高度样式，让flex布局正常工作
+                   logEditor.style.removeProperty('height');
+                   logEditor.style.removeProperty('max-height');
+               }
                if (editorToolbar) editorToolbar.classList.remove('hidden');
+               
+               // 确保logContent容器正确使用flex布局
+               const logContent = document.getElementById('logContent');
+               if (logContent) {
+                   logContent.style.removeProperty('height');
+                   logContent.style.removeProperty('max-height');
+               }
                
                // 渲染日志行
                this.renderLogLines();
@@ -345,34 +357,25 @@ class LogWhisperApp {
                logLinesContainer.innerHTML = '';
                logLinesContainer.className = 'log-editor';
                
-               // 重新设计布局系统
+               // 重新设计布局系统 - 移除强制高度设置，让flex布局正常工作
                const logContentForHeight = document.getElementById('logContent');
                const logEditorForHeight = document.getElementById('logEditor');
                
-               // 计算可用高度
-               const windowHeight = window.innerHeight;
-               const headerHeight = 48; // 头部高度
-               const footerHeight = 32; // 底部高度
-               const availableHeight = windowHeight - headerHeight - footerHeight;
-               
+               // 移除所有强制高度设置，让容器使用flex布局
                if (logContentForHeight) {
-                   logContentForHeight.style.setProperty('height', `${availableHeight}px`, 'important');
-                   logContentForHeight.style.setProperty('max-height', `${availableHeight}px`, 'important');
-                   logContentForHeight.style.setProperty('overflow-y', 'auto', 'important');
-                   logContentForHeight.style.setProperty('overflow-x', 'hidden', 'important');
-                   console.log('🔧 设置logContent高度为:', availableHeight + 'px');
+                   logContentForHeight.style.removeProperty('height');
+                   logContentForHeight.style.removeProperty('max-height');
+                   console.log('🔧 移除logContent的强制高度设置');
                }
                if (logEditorForHeight) {
-                   logEditorForHeight.style.setProperty('height', `${availableHeight}px`, 'important');
-                   logEditorForHeight.style.setProperty('max-height', `${availableHeight}px`, 'important');
-                   logEditorForHeight.style.setProperty('overflow', 'hidden', 'important');
-                   console.log('🔧 设置logEditor高度为:', availableHeight + 'px');
+                   logEditorForHeight.style.removeProperty('height');
+                   logEditorForHeight.style.removeProperty('max-height');
+                   console.log('🔧 移除logEditor的强制高度设置');
                }
                
-               // 强制设置logLines容器高度
-               logLinesContainer.style.setProperty('height', 'auto', 'important');
-               logLinesContainer.style.setProperty('max-height', 'none', 'important');
-               logLinesContainer.style.setProperty('overflow', 'visible', 'important');
+               // 确保logLines容器使用自然高度
+               logLinesContainer.style.removeProperty('height');
+               logLinesContainer.style.removeProperty('max-height');
                console.log('🔧 设置logLines容器样式');
                
                // 移除测试行，避免影响布局
@@ -422,19 +425,7 @@ class LogWhisperApp {
                console.log('📊 最终渲染的行数:', logLinesContainer.children.length);
                console.log('📊 容器内容:', logLinesContainer.innerHTML.substring(0, 200) + '...');
                
-               // 渲染完成后再次强制设置高度
-               const logContentAfter = document.getElementById('logContent');
-               const logEditorAfter = document.getElementById('logEditor');
-               if (logContentAfter) {
-                   logContentAfter.style.setProperty('height', '500px', 'important');
-                   logContentAfter.style.setProperty('max-height', '500px', 'important');
-                   console.log('🔧 渲染后重新设置logContent高度');
-               }
-               if (logEditorAfter) {
-                   logEditorAfter.style.setProperty('height', '500px', 'important');
-                   logEditorAfter.style.setProperty('max-height', '500px', 'important');
-                   console.log('🔧 渲染后重新设置logEditor高度');
-               }
+               // 渲染完成后不再强制设置高度，使用flex布局
                
                // 确保欢迎界面被隐藏
                const welcomeScreenAfter = document.getElementById('welcomeScreen');
@@ -501,9 +492,9 @@ class LogWhisperApp {
                const logLinesContainer = document.getElementById('logLines');
                if (!logLinesContainer) return;
                
-               // 设置容器高度和滚动
-               logLinesContainer.style.height = '600px';
-               logLinesContainer.style.overflowY = 'auto';
+               // 不强制设置高度，让容器使用flex布局
+               // logLinesContainer.style.height = '600px';
+               // logLinesContainer.style.overflowY = 'auto';
                
                // 添加虚拟滚动监听器
                logLinesContainer.addEventListener('scroll', this.throttle(() => {
@@ -753,18 +744,6 @@ class LogWhisperApp {
 
                // 渲染侧边栏
                sidebarContent.innerHTML = '';
-               
-               // 添加文件信息
-               const fileInfoDiv = document.createElement('div');
-               fileInfoDiv.className = 'mb-4 p-3 bg-gray-50 dark:bg-gray-700 rounded-lg';
-               fileInfoDiv.innerHTML = `
-                   <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">📄 文件信息</h4>
-                   <div class="text-xs text-gray-600 dark:text-gray-400 space-y-1">
-                       <div>总行数: ${this.totalLines}</div>
-                       <div>解析时间: ${this.parseTime || '未知'}</div>
-                   </div>
-               `;
-               sidebarContent.appendChild(fileInfoDiv);
                
                // 添加日志级别统计
                const levelStatsDiv = document.createElement('div');
@@ -1022,16 +1001,23 @@ class LogWhisperApp {
                const sidebar = document.getElementById('sidebar');
                const toggleBtn = document.getElementById('sidebarToggle');
                
-               if (!sidebar || !toggleBtn) return;
+               if (!sidebar || !toggleBtn) {
+                   console.warn('⚠️ 找不到侧边栏或折叠按钮');
+                   return;
+               }
                
                this.sidebarCollapsed = !this.sidebarCollapsed;
+               
+               console.log('🔄 切换侧边栏状态:', this.sidebarCollapsed ? '折叠' : '展开');
                
                if (this.sidebarCollapsed) {
                    sidebar.classList.add('sidebar-collapsed');
                    toggleBtn.innerHTML = '<span class="text-sm">▶</span>';
+                   console.log('✅ 侧边栏已折叠');
                } else {
                    sidebar.classList.remove('sidebar-collapsed');
                    toggleBtn.innerHTML = '<span class="text-sm">◀</span>';
+                   console.log('✅ 侧边栏已展开');
                }
            }
            
@@ -1179,9 +1165,19 @@ class LogWhisperApp {
 
         // 侧边栏折叠
         const sidebarToggle = document.getElementById('sidebarToggle');
+        const collapsedHint = document.getElementById('collapsedHint');
         if (sidebarToggle) {
             sidebarToggle.addEventListener('click', () => {
                 this.toggleSidebar();
+            });
+        }
+        
+        // 折叠提示区域点击展开
+        if (collapsedHint) {
+            collapsedHint.addEventListener('click', () => {
+                if (this.sidebarCollapsed) {
+                    this.toggleSidebar();
+                }
             });
         }
         
@@ -1326,17 +1322,156 @@ class LogWhisperApp {
         });
     }
     
-    initTheme() {
-        // 从本地存储加载主题设置
-        const savedTheme = localStorage.getItem('logwhisper-theme') || 'light';
-        this.setTheme(savedTheme);
-        
-        // 更新主题选择器
-        const themeSelect = document.getElementById('themeSelect');
-        if (themeSelect) {
-            themeSelect.value = savedTheme;
-        }
-    }
+           // 初始化主题
+           initTheme() {
+               // 从本地存储加载主题设置
+               const savedTheme = localStorage.getItem('logwhisper-theme') || 'light';
+               this.setTheme(savedTheme);
+               
+               // 更新主题选择器
+               const themeSelect = document.getElementById('themeSelect');
+               if (themeSelect) {
+                   themeSelect.value = savedTheme;
+               }
+               
+               // 添加布局修复CSS
+               this.addLayoutFixCSS();
+           }
+           
+           // 添加布局修复CSS规则
+           addLayoutFixCSS() {
+               const style = document.createElement('style');
+               style.id = 'layout-fix-css';
+               style.textContent = `
+                   /* 修复布局问题 - 确保日志内容区域正确使用flex布局 */
+                   #mainApp {
+                       height: 100vh !important;
+                       overflow: hidden !important;
+                   }
+                   
+                   #logEditor {
+                       display: flex !important;
+                       flex-direction: column !important;
+                       height: 100% !important;
+                       min-height: 0 !important;
+                   }
+                   
+                   #logContent {
+                       flex: 1 !important;
+                       min-height: 0 !important;
+                       overflow: hidden !important;
+                       display: flex !important;
+                       flex-direction: column !important;
+                   }
+                   
+                   #logLines {
+                       flex: 1 !important;
+                       overflow-y: auto !important;
+                       overflow-x: hidden !important;
+                       min-height: 0 !important;
+                   }
+                   
+                   /* 主编辑区域布局修复 */
+                   .flex-1.flex.flex-col.min-h-0 {
+                       display: flex !important;
+                       flex-direction: column !important;
+                       flex: 1 !important;
+                       min-height: 0 !important;
+                       overflow: hidden !important;
+                   }
+                   
+                   main.flex.flex-1 {
+                       display: flex !important;
+                       flex: 1 !important;
+                       min-height: 0 !important;
+                       overflow: hidden !important;
+                   }
+                   
+                   /* 移除按钮点击后的焦点边框 */
+                   button:focus {
+                       outline: none !important;
+                       box-shadow: none !important;
+                   }
+                   
+                   button:focus-visible {
+                       outline: none !important;
+                       box-shadow: none !important;
+                   }
+                   
+                   /* 移除所有可聚焦元素的默认焦点样式 */
+                   *:focus {
+                       outline: none !important;
+                   }
+                   
+                   /* 确保按钮在各种状态下都没有边框 */
+                   button {
+                       border: none !important;
+                   }
+                   
+                   button:active {
+                       outline: none !important;
+                       box-shadow: none !important;
+                   }
+                   
+                   /* 侧边栏折叠样式 */
+                   #sidebar {
+                       transition: all 0.3s ease-in-out !important;
+                       overflow: hidden !important;
+                   }
+                   
+                   .sidebar-collapsed {
+                       width: 48px !important;
+                       min-width: 48px !important;
+                       max-width: 48px !important;
+                   }
+                   
+                   .sidebar-collapsed .sidebar-title,
+                   .sidebar-collapsed #sidebarContent {
+                       opacity: 0 !important;
+                       visibility: hidden !important;
+                       transition: opacity 0.2s ease-in-out, visibility 0.2s ease-in-out !important;
+                   }
+                   
+                   .sidebar-collapsed #sidebarToggle {
+                       justify-self: center !important;
+                       margin: 0 auto !important;
+                   }
+                   
+                   /* 折叠状态下的提示区域 */
+                   .sidebar-collapsed #collapsedHint {
+                       display: flex !important;
+                       opacity: 1 !important;
+                       transition: opacity 0.3s ease-in-out 0.2s !important;
+                       cursor: pointer !important;
+                   }
+                   
+                   .sidebar-collapsed #collapsedHint:hover {
+                       background-color: rgba(0, 0, 0, 0.05) !important;
+                   }
+                   
+                   #sidebar:not(.sidebar-collapsed) #collapsedHint {
+                       display: none !important;
+                       opacity: 0 !important;
+                   }
+                   
+                   /* 保证非折叠状态下的正常显示 */
+                   #sidebar:not(.sidebar-collapsed) .sidebar-title,
+                   #sidebar:not(.sidebar-collapsed) #sidebarContent {
+                       opacity: 1 !important;
+                       visibility: visible !important;
+                       transition: opacity 0.3s ease-in-out 0.1s, visibility 0.3s ease-in-out 0.1s !important;
+                   }
+               `;
+               
+               // 检查是否已经添加过，避免重复
+               const existingStyle = document.getElementById('layout-fix-css');
+               if (existingStyle) {
+                   existingStyle.remove();
+               }
+               
+               document.head.appendChild(style);
+               console.log('✅ 布局修复CSS已添加');
+           }
     
     setTheme(theme) {
         this.currentTheme = theme;
@@ -1598,6 +1733,11 @@ class LogWhisperApp {
         
         if (files.length > 0) {
             const file = files[0];
+            
+            // 在处理新文件之前，先清理所有历史数据和UI状态
+            console.log('🧹 清理历史数据和UI状态...');
+            this.clearAllState();
+            
             this.currentFile = file;
             
             console.log('📁 文件已选择:', file.name);
@@ -1997,45 +2137,148 @@ class LogWhisperApp {
     }
     
     clearContent() {
+        // 使用完整的状态清理函数
+        this.clearAllState();
+        
+        // 清理文件输入框
         const fileInput = document.getElementById('fileInput');
-        const welcomeScreen = document.getElementById('welcomeScreen');
-        const resultsContainer = document.getElementById('resultsContainer');
-        
         if (fileInput) fileInput.value = '';
-        
-        if (welcomeScreen) welcomeScreen.classList.remove('hidden');
-        if (resultsContainer) resultsContainer.classList.add('hidden');
-        
-        this.currentFile = null;
-        this.currentEntries = [];
         
         console.log('🗑️ 内容已清空');
     }
     
-    exportResults() {
-        if (this.currentEntries.length === 0) {
-            alert('没有可导出的结果');
-            return;
+    // 清理所有状态和UI数据（用于文件切换时）
+    clearAllState() {
+        console.log('🧹 开始清理所有历史状态和UI数据...');
+        
+        // 1. 清理日志数据
+        this.currentFile = null;
+        this.currentEntries = [];
+        this.logLines = [];
+        this.filteredLines = [];
+        this.searchResults = [];
+        
+        // 2. 重置搜索和过滤状态
+        this.searchTerm = '';
+        this.currentFilter = 'all';
+        this.currentLine = 0;
+        this.totalLines = 0;
+        this.pluginCategories = {};
+        
+        // 3. 重置解析时间
+        this.parseTime = null;
+        
+        // 4. 清理搜索输入框
+        const searchInput = document.getElementById('searchInput');
+        if (searchInput) {
+            searchInput.value = '';
         }
         
-        const data = this.currentEntries.map(entry => ({
-            timestamp: entry.timestamp,
-            level: entry.level,
-            content: entry.content
-        }));
+        // 5. 清理日志编辑器UI
+        const logEditor = document.getElementById('logEditor');
+        const editorToolbar = document.getElementById('editorToolbar');
+        if (logEditor) {
+            logEditor.classList.add('hidden');
+        }
+        if (editorToolbar) {
+            editorToolbar.classList.add('hidden');
+        }
         
-        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
+        // 6. 清理日志内容区域
+        const logLines = document.getElementById('logLines');
+        if (logLines) {
+            logLines.innerHTML = '';
+            logLines.className = 'log-editor'; // 重置类名
+        }
         
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `logwhisper-export-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.json`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
+        // 7. 清理侧边栏内容
+        const pluginCategories = document.getElementById('pluginCategories');
+        if (pluginCategories) {
+            pluginCategories.innerHTML = '';
+        }
         
-        console.log('📤 结果已导出');
+        // 8. 重置状态栏
+        this.resetStatusBar();
+        
+        // 9. 显示欢迎界面
+        const welcomeScreen = document.getElementById('welcomeScreen');
+        if (welcomeScreen) {
+            welcomeScreen.classList.remove('hidden');
+        }
+        
+        // 10. 隐藏结果容器
+        const resultsContainer = document.getElementById('resultsContainer');
+        if (resultsContainer) {
+            resultsContainer.classList.add('hidden');
+        }
+        
+        // 11. 清理所有选中状态
+        document.querySelectorAll('.log-line.selected').forEach(el => {
+            el.classList.remove('selected');
+        });
+        
+        // 12. 清理搜索高亮
+        this.clearSearchHighlights();
+        
+        // 13. 重置过滤器按钮状态
+        document.querySelectorAll('.filter-btn').forEach(btn => {
+            btn.classList.remove('active');
+        });
+        const allFilterBtn = document.querySelector('[data-filter="all"]');
+        if (allFilterBtn) {
+            allFilterBtn.classList.add('active');
+        }
+        
+        // 14. 清理文件信息显示
+        const fileInfoElement = document.getElementById('fileInfo');
+        if (fileInfoElement) {
+            fileInfoElement.textContent = '未选择文件';
+        }
+        
+        console.log('✅ 所有历史状态和UI数据已清理完成');
+    }
+    
+    // 重置状态栏
+    resetStatusBar() {
+        const statusLine = document.getElementById('statusLine');
+        const statusColumn = document.getElementById('statusColumn');
+        const statusPlugins = document.getElementById('statusPlugins');
+        const statusSearch = document.getElementById('statusSearch');
+        const statusFile = document.getElementById('statusFile');
+        const statusFileSize = document.getElementById('statusFileSize');
+        const statusParseTime = document.getElementById('statusParseTime');
+        
+        if (statusLine) {
+            statusLine.textContent = '行 0/0';
+        }
+        
+        if (statusColumn) {
+            statusColumn.textContent = '列 0';
+        }
+        
+        if (statusPlugins) {
+            statusPlugins.textContent = '插件：无';
+        }
+        
+        if (statusSearch) {
+            statusSearch.textContent = '搜索：0 处匹配';
+        }
+        
+        if (statusFile) {
+            statusFile.textContent = '文件：无';
+        }
+        
+        if (statusFileSize) {
+            statusFileSize.textContent = '大小：未知';
+            statusFileSize.classList.add('hidden');
+        }
+        
+        if (statusParseTime) {
+            statusParseTime.textContent = '解析：未知';
+            statusParseTime.classList.add('hidden');
+        }
+        
+        console.log('✅ 状态栏已重置');
     }
     
     showLoading() {

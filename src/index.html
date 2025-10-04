@@ -92,10 +92,18 @@
         <!-- 主编辑区域 -->
         <main class="flex flex-1 bg-gray-50 dark:bg-gray-900 min-h-0">
             <!-- 左侧导航面板（可折叠） -->
-            <aside id="sidebar" class="w-80 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col transition-all duration-300">
+            <aside id="sidebar" class="w-80 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col transition-all duration-300 relative">
+                <!-- 折叠状态下的提示区域 -->
+                <div id="collapsedHint" class="hidden absolute inset-0 flex flex-col items-center justify-start pt-16 space-y-2 z-10" title="点击展开导航面板">
+                    <div class="text-xs text-gray-500 dark:text-gray-400 transform rotate-90 mt-4 opacity-60">导</div>
+                    <div class="text-xs text-gray-500 dark:text-gray-400 transform rotate-90 mt-4 opacity-60">航</div>
+                    <div class="text-xs text-gray-400 dark:text-gray-500 transform rotate-90 mt-8 opacity-40">面</div>
+                    <div class="text-xs text-gray-500 dark:text-gray-400 transform rotate-90 mt-4 opacity-60">板</div>
+                </div>
+                
                 <!-- 侧边栏标题栏 -->
                 <div class="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
-                    <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300">导航面板</h3>
+                    <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 sidebar-title">导航面板</h3>
                     <button id="sidebarToggle" class="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors duration-200">
                         <span class="text-sm">◀</span>
                     </button>
@@ -161,10 +169,6 @@
                             <button class="px-3 py-1.5 text-sm rounded-md font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 focus:ring-gray-500" id="clearBtn">
                                 <span class="text-sm">🗑️</span>
                                 <span>清空</span>
-                            </button>
-                            <button class="px-3 py-1.5 text-sm rounded-md font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 focus:ring-gray-500" id="exportBtn">
-                                <span class="text-sm">📤</span>
-                                <span>导出</span>
                             </button>
                         </div>
                     </div>

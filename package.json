@@ -11,6 +11,8 @@
     "build": "npm run build:css && npm run build:rust",
     "build:css": "tailwindcss -i ./src/style.css -o ./src/style.css --watch",
     "build:css:prod": "tailwindcss -i ./src/style.css -o ./src/style.css --minify",
+    "build:styles": "tailwindcss -i ./src/style.css -o ./src/style.css --minify",
+    "watch:styles": "tailwindcss -i ./src/style.css -o ./src/style.css --watch",
     "build:rust": "cd src-rust && cargo build --release --bin api-server",
     "package": "electron-builder",
     "dist": "npm run build:css:prod && npm run build:rust && electron-builder",

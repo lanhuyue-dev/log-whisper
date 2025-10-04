@@ -1,66 +1,84 @@
-# Rust
-/target/
-**/*.rs.bk
-Cargo.lock
+# 构建输出
+/dist/
+/build/
 
-# Tauri
-src-tauri/target/
-src-tauri/Cargo.lock
+# 依赖
+/node_modules/
+/.pnp
+.pnp.js
 
-# Node.js
-node_modules/
+# Rust 构建输出
+/src-rust/target/
+/src-rust/Cargo.lock
+
+# Tauri 旧版本文件 (已迁移到 Electron)
+/src-tauri/
+tauri.conf.json
+
+# 日志文件
+*.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# IDE
+# 运行时数据
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# 编辑器和IDE
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
 
-# OS
+# 操作系统
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
 Thumbs.db
 
-# Logs
-*.log
-logs/
-
-# Build artifacts
-dist/
-build/
-*.exe
-*.msi
-*.dmg
-*.deb
-*.rpm
-*.AppImage
-
-# Test files
-test_*.log
-test_*.txt
-temp/
-
-# Cache
-.cache/
+# 临时文件
 *.tmp
+*.temp
+/tmp/
 
-# Environment
+# 环境变量
 .env
 .env.local
-.env.development
-.env.production
+.env.development.local
+.env.test.local
+.env.production.local
 
-# Coverage
-coverage/
-*.lcov
+# 测试覆盖率
+/coverage/
 
-# Documentation
-docs/_build/
-site/
-/node_modules/
-/logs/
-/.idea/
-/.github/
+# 打包文件
+*.tgz
+*.tar.gz
+
+# Electron 输出
+/out/
+/app/dist/
+
+# 备份文件
+*.bak
+*.backup
+
+# 配置文件备份
+config.backup.*
+settings.backup.*
+
+# 开发时的测试文件
+test-*.log
+sample-*.txt
+debug-*
+
+# 性能分析文件
+*.cpuprofile
+*.heapprofile

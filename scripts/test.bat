@@ -10,29 +10,31 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
-REM Run unit tests
-echo Running unit tests...
-cargo test --lib
+REM Check if Node.js is installed
+where node >nul 2>nul
 if %errorlevel% neq 0 (
-    echo Unit tests failed
+    echo Node.js is not installed. Please install Node.js first.
+    echo Visit https://nodejs.org/ to install Node.js
     pause
     exit /b 1
 )
 
-REM Run integration tests
-echo Running integration tests...
-cargo test --test integration
+REM Run Rust API tests
+echo Running Rust API tests...
+cd src-rust
+cargo test
 if %errorlevel% neq 0 (
-    echo Integration tests failed
+    echo Rust API tests failed
     pause
     exit /b 1
 )
+cd ..
 
-REM Run documentation tests
-echo Running documentation tests...
-cargo test --doc
+REM Run Node.js tests (if any)
+echo Running Node.js tests...
+npm test
 if %errorlevel% neq 0 (
-    echo Documentation tests failed
+    echo Node.js tests failed
     pause
     exit /b 1
 )

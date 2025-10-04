@@ -1,48 +1,49 @@
 @echo off
-echo LogWhisper Development Environment Startup Script
+echo.
+echo ==========================================
+echo       LogWhisper Development Mode Launcher
+echo ==========================================
 echo.
 
-REM Check if we are in the correct directory
-if not exist "src-tauri\Cargo.toml" (
-    echo Please run this script from the project root directory
-    echo Current directory: %CD%
+cd /d "%~dp0"
+
+echo [INFO] Checking development environment...
+if not exist "node_modules" (
+    echo [INFO] Installing Node.js dependencies...
+    npm install
+    if %ERRORLEVEL% neq 0 (
+        echo [ERROR] Failed to install dependencies
+        pause
+        exit /b 1
+    )
+)
+
+echo [INFO] Building Rust API server (debug version)...
+cd src-rust
+cargo build --bin api-server
+if %ERRORLEVEL% neq 0 (
+    echo [ERROR] Rust compilation failed
     pause
     exit /b 1
 )
+cd ..
 
-echo Current directory: %CD%
+echo [SUCCESS] Compilation completed
+echo.
+echo [INFO] Starting development mode...
+echo.
+echo [INFO] Architecture: Electron + Rust API (Development Mode)
+echo [INFO] API Server: http://127.0.0.1:3030
+echo [INFO] Desktop App: Electron Window (DevTools Enabled)
 echo.
 
-REM Choose operation
-echo Please select an operation:
-echo 1. Development mode (cargo tauri dev)
-echo 2. Run tests (cargo test)
-echo 3. Build application (cargo tauri build)
-echo 4. Clean build (cargo clean)
-echo 5. Exit
+npm run dev
+
 echo.
-
-set /p CHOICE=Enter your choice (1-5): 
-
-if "%CHOICE%"=="1" (
-    echo Starting development mode...
-    call scripts\dev.bat
-) else if "%CHOICE%"=="2" (
-    echo Running tests...
-    call scripts\test.bat
-) else if "%CHOICE%"=="3" (
-    echo Building application...
-    call scripts\build.bat
-) else if "%CHOICE%"=="4" (
-    echo Cleaning build...
-    cargo clean
-    echo Clean completed
-    pause
-) else if "%CHOICE%"=="5" (
-    echo Goodbye!
-    exit /b 0
+if %ERRORLEVEL% neq 0 (
+    echo [ERROR] Development mode startup failed, error code: %ERRORLEVEL%
 ) else (
-    echo Invalid choice
-    pause
-    exit /b 1
+    echo [SUCCESS] Development mode exited normally
 )
+
+pause

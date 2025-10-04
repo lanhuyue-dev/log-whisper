@@ -12,20 +12,20 @@ if ! command -v cargo &> /dev/null; then
     exit 1
 fi
 
-# 运行单元测试
-echo "🔬 运行单元测试..."
-cargo test --lib
+# 检查 Node.js 是否安装
+if ! command -v node &> /dev/null; then
+    echo "❌ Node.js 未安装，请先安装 Node.js"
+    exit 1
+fi
 
-# 运行集成测试
-echo "🔗 运行集成测试..."
-cargo test --test integration
+# 运行 Rust API 测试
+echo "🔬 运行 Rust API 测试..."
+cd src-rust
+cargo test
+cd ..
 
-# 运行性能测试
-echo "⚡ 运行性能测试..."
-cargo test --test performance
-
-# 运行文档测试
-echo "📚 运行文档测试..."
-cargo test --doc
+# 运行 Node.js 测试
+echo "🔗 运行 Node.js 测试..."
+npm test
 
 echo "✅ 所有测试通过！"

@@ -1,1028 +1,1993 @@
-// LogWhisper 前端应用
+// LogWhisper 前端应用 - Electron 版本 (基于 Tailwind CSS)
 class LogWhisperApp {
     constructor() {
         this.currentFile = null;
         this.currentEntries = [];
-        this.currentPlugin = 'auto';
         this.searchTerm = '';
         this.isLoading = false;
-        this.currentTheme = 'light'; // 默认亮色主题
-        this.debugMode = false; // 调试模式
-        this.debugStats = {
-            parseCount: 0,
-            totalParseTime: 0,
-            cacheHits: 0,
-            cacheMisses: 0
+        this.currentTheme = 'light';
+        this.debugMode = false;
+        
+        // API 配置
+        this.API_BASE_URL = 'http://127.0.0.1:3030';
+        this.isApiAvailable = false;
+        this.isElectronEnv = false;
+        
+           // 插件管理
+           this.installedPlugins = [];
+           this.availablePlugins = [];
+           
+           // 配置管理
+           this.configs = {
+               theme: null,
+               parse: null,
+               plugin: null,
+               window: null
+           };
+
+           // EmEditor 风格编辑器状态
+           this.logLines = [];
+           this.filteredLines = [];
+           this.currentFilter = 'all';
+           this.searchTerm = '';
+           this.searchResults = [];
+           this.currentLine = 0;
+           this.totalLines = 0;
+           this.pluginCategories = {};
+           this.sidebarCollapsed = false;
+        this.pluginSettings = {
+            autoUpdate: false,
+            notifications: true
         };
         
-        // 虚拟滚动配置
-        this.virtualScroll = {
-            enabled: true,
-            itemHeight: 120, // 每个日志项的高度（增加以适应复杂内容）
-            visibleCount: 15, // 可见区域显示的项目数
-            bufferSize: 10, // 缓冲区大小（增加以减少频繁渲染）
-            scrollTop: 0,
-            startIndex: 0,
-            endIndex: 0,
-            containerHeight: 600,
-            totalItems: 0,
-            renderedItems: [], // 当前渲染的项目
-            viewportStartIndex: 0,
-            viewportEndIndex: 0
-        };
-        
-        // 分块加载配置（移除，改用Rust后端API）
-        // this.chunkLoading = {
-        //     enabled: true,
-        //     chunkSize: 100,
-        //     loadedChunks: new Set(),
-        //     totalChunks: 0,
-        //     maxChunkSize: 1000,
-        //     minChunkSize: 50,
-        //     adaptiveChunkSize: true,
-        //     loadingQueue: [],
-        //     isProcessing: false,
-        //     checkInterval: null
-        // };
-        
-        // Rust后端分块加载配置
-        this.backendChunkLoader = {
-            initialized: false,
-            currentFileMetadata: null,
-            loadedChunks: new Set(),
-            totalChunks: 0,
-            chunkSize: 100
-        };
-        
-        // 内存管理配置（移除，改用Rust后端API）
-        // this.memoryManager = {
-        //     maxMemoryUsage: 5000 * 1024 * 1024,
-        //     currentMemoryUsage: 0,
-        //     gcThreshold: 2048 * 1024 * 1024,
-        //     enableMonitoring: true,
-        //     lastGcTime: 0,
-        //     chunkSize: 1000,
-        //     maxCachedChunks: 50
-        // };
-        
-        // 日志系统配置
-        this.logger = {
-            level: 'DEBUG', // DEBUG, INFO, WARN, ERROR
-            console: false, // 控制台输出（关闭）
-            file: true, // 文件输出
-            maxFileSize: 10 * 1024 * 1024, // 10MB
-            maxFiles: 5,
-            logs: [], // 内存中的日志（仅用于调试面板显示）
-            maxMemoryLogs: 100 // 内存中最多保存100条日志
-        };
+        // 解析时间
+        this.parseTime = null;
         
         this.init();
     }
     
-    async init() {
-        this.info('APP', 'LogWhisper 前端应用初始化...');
-        this.info('LOGGER', '日志文件位置: ' + window.location.pathname.replace('/src/index.html', '') + '/logs/logwhisper_' + new Date().toISOString().split('T')[0] + '.log');
-        
-        // 设置事件监听器
-        this.setupEventListeners();
-        
-        // 设置拖拽功能
-        this.setupDragAndDrop();
-        
-        // 初始化主题
-        this.initTheme();
-        
-        // 初始化Tauri API
-        await this.initTauriAPI();
-        
-        // 测试日志系统
-        this.testLogging();
-        
-        console.log('LogWhisper 前端应用初始化完成');
+           async init() {
+               console.log('🚀 LogWhisper 前端应用初始化...');
+               console.time('⏱️ 初始化总耗时');
+               
+               // 更新加载状态
+               this.updateLoadingStatus('初始化组件...');
+               console.log('📋 1. 组件初始化开始');
+               
+               // 设置事件监听器
+               this.setupEventListeners();
+               console.log('📋 2. 事件监听器设置完成');
+               
+               // 设置拖拽功能
+               this.setupDragAndDrop();
+               console.log('📋 3. 拖拽功能设置完成');
+               
+               // 初始化主题
+               this.initTheme();
+               
+               // 强制应用暗色主题进行测试
+               // this.forceDarkTheme(); // 注释掉强制暗色主题
+               
+               // 加载配置（异步等待）
+               await this.loadConfigs();
+               console.log('📋 4. 主题初始化完成');
+               
+               // 更新加载状态
+               this.updateLoadingStatus('检测环境...');
+               console.log('📋 5. 开始环境检测');
+               
+               // 初始化 Electron 环境
+               this.initElectron();
+               console.log('📋 6. Electron 环境初始化完成');
+               
+               // 更新加载状态
+               this.updateLoadingStatus('连接 API 服务器...');
+               console.log('📋 7. 开始连接 API 服务器');
+               
+               // 检查 API 状态（异步）
+               await this.checkApiStatus();
+               console.log('📋 8. API 连接完成，开始最终初始化');
+               
+               // 初始化插件管理
+               this.initPluginManager();
+               console.log('📋 9. 插件管理初始化完成');
+               
+               // 解析按钮已移除，无需初始化
+               console.log('📋 10. 解析按钮状态初始化完成');
+               
+               // 所有初始化完成，显示主应用
+               console.log('📋 11. 开始显示主应用');
+               this.showMainApp();
+               
+               console.timeEnd('⏱️ 初始化总耗时');
+               console.log('✅ LogWhisper 前端应用初始化完成');
+           }
+    
+    updateLoadingStatus(message) {
+        const statusElement = document.getElementById('loadingStatus');
+        if (statusElement) {
+            statusElement.textContent = message;
+        }
+        console.log('📋 加载状态:', message);
     }
     
-    async initTauriAPI() {
-        try {
-            // 等待更长时间，让 Tauri 完成初始化
-            await new Promise(resolve => setTimeout(resolve, 500));
+           showMainApp() {
+               console.log('🎯 开始显示主应用...');
+               
+               // 更新加载状态
+               this.updateLoadingStatus('加载完成！');
+               console.log('📋 加载状态更新完成');
+               
+               // 立即显示主应用，不等待
+               const loadingPage = document.getElementById('loadingPage');
+               const mainApp = document.getElementById('mainApp');
+               
+               console.log('🔍 查找元素:', { loadingPage: !!loadingPage, mainApp: !!mainApp });
+               
+               if (loadingPage && mainApp) {
+                   console.log('✅ 元素找到，开始切换...');
+                   
+                   // 先显示主应用，再隐藏加载页面
+                   mainApp.classList.remove('hidden');
+                   mainApp.style.opacity = '1';
+                   mainApp.style.transition = 'none'; // 立即显示，无过渡
+                   console.log('📥 主应用立即显示');
+                   
+                   // 延迟隐藏加载页面，确保主应用已经显示
+                   setTimeout(() => {
+                       loadingPage.style.opacity = '0';
+                       loadingPage.style.transition = 'opacity 0.3s ease-out';
+                       console.log('📤 加载页面开始淡出');
+                       
+                       // 完全隐藏加载页面
+                       setTimeout(() => {
+                           loadingPage.style.display = 'none';
+                           console.log('✅ 加载页面完全隐藏');
+                       }, 300);
+                   }, 100);
+                   
+                   console.log('✨ 主应用显示完成');
+               } else {
+                   console.error('❌ 找不到必要的元素:', { loadingPage, mainApp });
+               }
+           }
+           
+           // 加载配置
+           async loadConfigs() {
+               try {
+                   console.log('📋 开始加载配置...');
+                   
+                   // 加载主题配置
+                   const themeResponse = await fetch(`${this.API_BASE_URL}/api/config/theme`);
+                   if (themeResponse.ok) {
+                       const themeData = await themeResponse.json();
+                       if (themeData.success && themeData.data) {
+                           this.configs.theme = themeData.data;
+                           this.applyTheme(themeData.data);
+                           console.log('✅ 主题配置加载成功');
+                       }
+                   }
+                   
+                   // 解析配置已移除，不再需要自动解析功能
+                   
+                   // 加载插件配置
+                   try {
+                       const pluginResponse = await fetch(`${this.API_BASE_URL}/api/config/plugin`);
+                       if (pluginResponse.ok) {
+                           const pluginData = await pluginResponse.json();
+                           if (pluginData.success && pluginData.data) {
+                               this.configs.plugin = pluginData.data;
+                               console.log('✅ 插件配置加载成功');
+                           }
+                       } else {
+                           console.warn('⚠️ 插件配置API不可用:', pluginResponse.status);
+                       }
+                   } catch (error) {
+                       console.warn('⚠️ 插件配置加载失败:', error.message);
+                   }
+                   
+                   // 加载窗口配置
+                   try {
+                       const windowResponse = await fetch(`${this.API_BASE_URL}/api/config/window`);
+                       if (windowResponse.ok) {
+                           const windowData = await windowResponse.json();
+                           if (windowData.success && windowData.data) {
+                               this.configs.window = windowData.data;
+                               console.log('✅ 窗口配置加载成功');
+                           }
+                       } else {
+                           console.warn('⚠️ 窗口配置API不可用:', windowResponse.status);
+                       }
+                   } catch (error) {
+                       console.warn('⚠️ 窗口配置加载失败:', error.message);
+                   }
+                   
+                   console.log('✅ 所有配置加载完成');
+               } catch (error) {
+                   console.warn('⚠️ 配置加载失败:', error.message);
+               }
+           }
+           
+           // 应用主题
+           applyTheme(themeConfig) {
+               const { mode, primary_color, accent_color, font_size, font_family } = themeConfig;
+               
+               console.log('🎨 开始应用主题:', { mode, primary_color, accent_color, font_size, font_family });
+               
+               // 应用主题模式
+               if (mode === 'dark') {
+                   document.documentElement.classList.add('dark');
+                   document.body.classList.add('dark');
+                   this.currentTheme = 'dark';
+                   console.log('🌙 暗色主题已应用');
+               } else if (mode === 'light') {
+                   document.documentElement.classList.remove('dark');
+                   document.body.classList.remove('dark');
+                   this.currentTheme = 'light';
+                   console.log('☀️ 亮色主题已应用');
+               } else if (mode === 'auto') {
+                   // 自动模式：根据系统偏好设置
+                   const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+                   if (prefersDark) {
+                       document.documentElement.classList.add('dark');
+                       document.body.classList.add('dark');
+                       this.currentTheme = 'dark';
+                       console.log('🌙 自动模式：暗色主题已应用');
+                   } else {
+                       document.documentElement.classList.remove('dark');
+                       document.body.classList.remove('dark');
+                       this.currentTheme = 'light';
+                       console.log('☀️ 自动模式：亮色主题已应用');
+                   }
+               }
+               
+               // 应用颜色
+               if (primary_color) {
+                   document.documentElement.style.setProperty('--primary-color', primary_color);
+               }
+               if (accent_color) {
+                   document.documentElement.style.setProperty('--accent-color', accent_color);
+               }
+               
+               // 应用字体
+               if (font_size) {
+                   document.documentElement.style.setProperty('--font-size', `${font_size}px`);
+               }
+               if (font_family) {
+                   document.documentElement.style.setProperty('--font-family', font_family);
+               }
+               
+           // 更新主题切换按钮图标
+           this.updateThemeToggleIcon();
+           
+           console.log('✅ 主题应用完成:', { 
+               currentTheme: this.currentTheme, 
+               hasDarkClass: document.documentElement.classList.contains('dark'),
+               bodyHasDarkClass: document.body.classList.contains('dark')
+           });
+       }
+       
+           // 强制应用暗色主题进行测试
+           forceDarkTheme() {
+               console.log('🌙 强制应用暗色主题进行测试...');
+               document.documentElement.classList.add('dark');
+               document.body.classList.add('dark');
+               this.currentTheme = 'dark';
+               this.updateThemeToggleIcon();
+               console.log('✅ 强制暗色主题已应用');
+           }
+
+           // EmEditor 风格日志渲染
+           renderLogEditor(entries) {
+               console.log('📝 开始渲染 EmEditor 风格日志编辑器...');
+               this.logLines = entries;
+               this.totalLines = entries.length;
+               this.filteredLines = [...entries];
+               
+               // 隐藏欢迎界面，显示编辑器
+               const welcomeScreen = document.getElementById('welcomeScreen');
+               const logEditor = document.getElementById('logEditor');
+               const editorToolbar = document.getElementById('editorToolbar');
+               
+               if (welcomeScreen) welcomeScreen.classList.add('hidden');
+               if (logEditor) logEditor.classList.remove('hidden');
+               if (editorToolbar) editorToolbar.classList.remove('hidden');
+               
+               // 渲染日志行
+               this.renderLogLines();
+               
+               // 更新侧边栏导航
+               this.updateSidebarNavigation();
+               
+               // 更新状态栏
+               this.updateStatusBar();
+               
+               console.log('✅ EmEditor 风格日志编辑器渲染完成');
+           }
+
+           // 分块渲染日志编辑器（用于处理大文件）
+           async renderLogEditorChunked(entries) {
+               console.log('📝 开始分块渲染 EmEditor 风格日志编辑器...');
+               console.log('📊 总条目数:', entries.length);
+               
+               this.logLines = entries;
+               this.totalLines = entries.length;
+               this.filteredLines = [...entries];
+               
+               // 隐藏欢迎界面，显示编辑器
+               const welcomeScreen = document.getElementById('welcomeScreen');
+               const logEditor = document.getElementById('logEditor');
+               const editorToolbar = document.getElementById('editorToolbar');
+               
+               if (welcomeScreen) {
+                   welcomeScreen.classList.add('hidden');
+                   welcomeScreen.style.setProperty('display', 'none', 'important');
+                   welcomeScreen.style.setProperty('visibility', 'hidden', 'important');
+                   console.log('🔧 隐藏欢迎界面');
+                   console.log('🔧 欢迎界面类名:', welcomeScreen.className);
+                   console.log('🔧 欢迎界面计算样式:', window.getComputedStyle(welcomeScreen).display);
+               }
+               if (logEditor) logEditor.classList.remove('hidden');
+               if (editorToolbar) editorToolbar.classList.remove('hidden');
+               
+               // 根据文件大小动态调整分块参数
+               const isLargeFile = entries.length > 10000;
+               const CHUNK_SIZE = isLargeFile ? 50 : 100; // 大文件使用更小的块
+               const RENDER_DELAY = isLargeFile ? 5 : 10; // 大文件使用更短的延迟
+               
+               const logLinesContainer = document.getElementById('logLines');
+               if (!logLinesContainer) {
+                   console.error('❌ 找不到logLines容器');
+                   return;
+               }
+               
+               console.log('📝 清空并设置logLines容器');
+               logLinesContainer.innerHTML = '';
+               logLinesContainer.className = 'log-editor';
+               
+               // 重新设计布局系统
+               const logContentForHeight = document.getElementById('logContent');
+               const logEditorForHeight = document.getElementById('logEditor');
+               
+               // 计算可用高度
+               const windowHeight = window.innerHeight;
+               const headerHeight = 48; // 头部高度
+               const footerHeight = 32; // 底部高度
+               const availableHeight = windowHeight - headerHeight - footerHeight;
+               
+               if (logContentForHeight) {
+                   logContentForHeight.style.setProperty('height', `${availableHeight}px`, 'important');
+                   logContentForHeight.style.setProperty('max-height', `${availableHeight}px`, 'important');
+                   logContentForHeight.style.setProperty('overflow-y', 'auto', 'important');
+                   logContentForHeight.style.setProperty('overflow-x', 'hidden', 'important');
+                   console.log('🔧 设置logContent高度为:', availableHeight + 'px');
+               }
+               if (logEditorForHeight) {
+                   logEditorForHeight.style.setProperty('height', `${availableHeight}px`, 'important');
+                   logEditorForHeight.style.setProperty('max-height', `${availableHeight}px`, 'important');
+                   logEditorForHeight.style.setProperty('overflow', 'hidden', 'important');
+                   console.log('🔧 设置logEditor高度为:', availableHeight + 'px');
+               }
+               
+               // 强制设置logLines容器高度
+               logLinesContainer.style.setProperty('height', 'auto', 'important');
+               logLinesContainer.style.setProperty('max-height', 'none', 'important');
+               logLinesContainer.style.setProperty('overflow', 'visible', 'important');
+               console.log('🔧 设置logLines容器样式');
+               
+               // 移除测试行，避免影响布局
+               // const testDiv = document.createElement('div');
+               // testDiv.textContent = '测试行 - 如果看到这行说明渲染工作正常';
+               // testDiv.style.cssText = 'padding: 10px; background: yellow; border: 1px solid red;';
+               // logLinesContainer.appendChild(testDiv);
+               
+               // 开始分块渲染
+               
+               let renderedCount = 0;
+               const totalCount = entries.length;
+               
+               // 分块渲染
+               for (let i = 0; i < entries.length; i += CHUNK_SIZE) {
+                   const chunk = entries.slice(i, i + CHUNK_SIZE);
+                   
+                   // 渲染当前块
+                   chunk.forEach((entry, chunkIndex) => {
+                       const globalIndex = i + chunkIndex;
+                       const lineElement = this.createLogLineElement(entry, globalIndex);
+                       logLinesContainer.appendChild(lineElement);
+                       
+                       // 调试：每100行输出一次
+                       if (globalIndex % 100 === 0) {
+                           console.log(`📝 已渲染 ${globalIndex + 1} 行`);
+                       }
+                   });
+                   
+                   renderedCount += chunk.length;
+                   
+                   // 让出控制权，避免阻塞UI
+                   if (i + CHUNK_SIZE < entries.length) {
+                       await new Promise(resolve => setTimeout(resolve, RENDER_DELAY));
+                   }
+               }
+               
+               // 渲染完成
+               
+               // 更新侧边栏导航
+               this.updateSidebarNavigation();
+               
+               // 更新状态栏
+               this.updateStatusBar();
+               
+               console.log('✅ 分块渲染完成，共渲染', renderedCount, '行');
+               console.log('📊 最终渲染的行数:', logLinesContainer.children.length);
+               console.log('📊 容器内容:', logLinesContainer.innerHTML.substring(0, 200) + '...');
+               
+               // 渲染完成后再次强制设置高度
+               const logContentAfter = document.getElementById('logContent');
+               const logEditorAfter = document.getElementById('logEditor');
+               if (logContentAfter) {
+                   logContentAfter.style.setProperty('height', '500px', 'important');
+                   logContentAfter.style.setProperty('max-height', '500px', 'important');
+                   console.log('🔧 渲染后重新设置logContent高度');
+               }
+               if (logEditorAfter) {
+                   logEditorAfter.style.setProperty('height', '500px', 'important');
+                   logEditorAfter.style.setProperty('max-height', '500px', 'important');
+                   console.log('🔧 渲染后重新设置logEditor高度');
+               }
+               
+               // 确保欢迎界面被隐藏
+               const welcomeScreenAfter = document.getElementById('welcomeScreen');
+               if (welcomeScreenAfter) {
+                   welcomeScreenAfter.classList.add('hidden');
+                   console.log('🔧 渲染后确认隐藏欢迎界面');
+                   console.log('🔧 欢迎界面类名:', welcomeScreenAfter.className);
+                   console.log('🔧 欢迎界面计算样式:', window.getComputedStyle(welcomeScreenAfter).display);
+               }
+               
+               // 调试容器可见性
+               console.log('🔍 logLines容器信息:');
+               console.log('  - 可见性:', window.getComputedStyle(logLinesContainer).visibility);
+               console.log('  - 显示:', window.getComputedStyle(logLinesContainer).display);
+               console.log('  - 高度:', window.getComputedStyle(logLinesContainer).height);
+               console.log('  - 宽度:', window.getComputedStyle(logLinesContainer).width);
+               console.log('  - 位置:', logLinesContainer.getBoundingClientRect());
+               
+               // 调试父容器
+               const logContent = document.getElementById('logContent');
+               if (logContent) {
+                   console.log('🔍 logContent容器信息:');
+                   console.log('  - 可见性:', window.getComputedStyle(logContent).visibility);
+                   console.log('  - 显示:', window.getComputedStyle(logContent).display);
+                   console.log('  - 高度:', window.getComputedStyle(logContent).height);
+                   console.log('  - 最大高度:', window.getComputedStyle(logContent).maxHeight);
+                   console.log('  - Flex:', window.getComputedStyle(logContent).flex);
+                   console.log('  - 位置:', logContent.getBoundingClientRect());
+               }
+               
+               // 调试logEditor容器
+               const logEditorElement = document.getElementById('logEditor');
+               if (logEditorElement) {
+                   console.log('🔍 logEditor容器信息:');
+                   console.log('  - 可见性:', window.getComputedStyle(logEditorElement).visibility);
+                   console.log('  - 显示:', window.getComputedStyle(logEditorElement).display);
+                   console.log('  - 高度:', window.getComputedStyle(logEditorElement).height);
+                   console.log('  - 最大高度:', window.getComputedStyle(logEditorElement).maxHeight);
+                   console.log('  - Flex:', window.getComputedStyle(logEditorElement).flex);
+                   console.log('  - 位置:', logEditorElement.getBoundingClientRect());
+                   console.log('  - 是否有hidden类:', logEditorElement.classList.contains('hidden'));
+               }
+               
+               // 调试主编辑区容器
+               const mainEditor = document.querySelector('.flex-1.flex.flex-col.min-h-0');
+               if (mainEditor) {
+                   console.log('🔍 主编辑区容器信息:');
+                   console.log('  - 可见性:', window.getComputedStyle(mainEditor).visibility);
+                   console.log('  - 显示:', window.getComputedStyle(mainEditor).display);
+                   console.log('  - 高度:', window.getComputedStyle(mainEditor).height);
+                   console.log('  - 位置:', mainEditor.getBoundingClientRect());
+               }
+               
+               // 对于超大文件，启用虚拟滚动
+               if (entries.length > 50000) {
+                   this.enableVirtualScrolling();
+               }
+           }
+
+           // 启用虚拟滚动（用于超大文件）
+           enableVirtualScrolling() {
+               console.log('🔄 启用虚拟滚动以优化超大文件性能');
+               
+               const logLinesContainer = document.getElementById('logLines');
+               if (!logLinesContainer) return;
+               
+               // 设置容器高度和滚动
+               logLinesContainer.style.height = '600px';
+               logLinesContainer.style.overflowY = 'auto';
+               
+               // 添加虚拟滚动监听器
+               logLinesContainer.addEventListener('scroll', this.throttle(() => {
+                   this.handleVirtualScroll();
+               }, 16)); // 60fps
+           }
+
+           // 处理虚拟滚动
+           handleVirtualScroll() {
+               const logLinesContainer = document.getElementById('logLines');
+               if (!logLinesContainer) return;
+               
+               const scrollTop = logLinesContainer.scrollTop;
+               const containerHeight = logLinesContainer.clientHeight;
+               const lineHeight = 20; // 假设每行高度为20px
+               
+               const startIndex = Math.floor(scrollTop / lineHeight);
+               const endIndex = Math.min(startIndex + Math.ceil(containerHeight / lineHeight) + 10, this.totalLines);
+               
+               // 只渲染可见区域的行
+               this.renderVisibleLines(startIndex, endIndex);
+           }
+
+           // 渲染可见行
+           renderVisibleLines(startIndex, endIndex) {
+               const logLinesContainer = document.getElementById('logLines');
+               if (!logLinesContainer) return;
+               
+               // 清空容器
+               logLinesContainer.innerHTML = '';
+               
+               // 渲染可见行
+               for (let i = startIndex; i < endIndex; i++) {
+                   if (this.logLines[i]) {
+                       const lineElement = this.createLogLineElement(this.logLines[i], i);
+                       logLinesContainer.appendChild(lineElement);
+                   }
+               }
+           }
+
+           // 节流函数
+           throttle(func, limit) {
+               let inThrottle;
+               return function() {
+                   const args = arguments;
+                   const context = this;
+                   if (!inThrottle) {
+                       func.apply(context, args);
+                       inThrottle = true;
+                       setTimeout(() => inThrottle = false, limit);
+                   }
+               }
+           }
+
+
+           // 渲染日志行
+           renderLogLines() {
+               const logLinesContainer = document.getElementById('logLines');
+               if (!logLinesContainer) return;
+
+               logLinesContainer.innerHTML = '';
+               logLinesContainer.className = 'log-editor';
+
+               this.filteredLines.forEach((entry, index) => {
+                   const lineElement = this.createLogLineElement(entry, index);
+                   logLinesContainer.appendChild(lineElement);
+               });
+           }
+
+           // 创建日志行元素
+           createLogLineElement(entry, index) {
+               const lineDiv = document.createElement('div');
+               lineDiv.className = 'log-line';
+               lineDiv.dataset.lineNumber = index + 1;
+               lineDiv.dataset.originalIndex = this.logLines.indexOf(entry);
+
+               // 行号
+               const lineNumber = document.createElement('div');
+               lineNumber.className = 'log-line-number';
+               lineNumber.textContent = (index + 1).toString().padStart(4, ' ');
+               lineDiv.appendChild(lineNumber);
+
+               // 左侧边距区域（插件图标）
+               const marginDiv = document.createElement('div');
+               marginDiv.className = 'log-line-margin';
+               
+               // 根据插件类型添加图标
+               if (entry.plugin_type) {
+                   const icon = this.getPluginIcon(entry.plugin_type);
+                   marginDiv.innerHTML = `<span class="log-line-icon">${icon}</span>`;
+               }
+               
+               lineDiv.appendChild(marginDiv);
+
+               // 时间戳
+               if (entry.timestamp) {
+                   const timestamp = document.createElement('span');
+                   timestamp.className = 'log-line-timestamp';
+                   timestamp.textContent = entry.timestamp;
+                   lineDiv.appendChild(timestamp);
+               }
+
+               // 日志级别
+               if (entry.level) {
+                   const level = document.createElement('span');
+                   level.className = `log-line-level ${entry.level.toLowerCase()}`;
+                   level.textContent = entry.level;
+                   lineDiv.appendChild(level);
+               }
+
+               // 日志内容
+               const contentDiv = document.createElement('div');
+               contentDiv.className = 'log-line-content';
+               
+               // 应用语法高亮
+               const highlightedContent = this.applySyntaxHighlighting(entry.content, entry.plugin_type);
+               contentDiv.innerHTML = highlightedContent;
+               
+               lineDiv.appendChild(contentDiv);
+
+               // 插件装饰器（行尾标签）
+               if (entry.decorator) {
+                   const decorator = document.createElement('div');
+                   decorator.className = 'log-decorator';
+                   decorator.textContent = entry.decorator;
+                   lineDiv.appendChild(decorator);
+               }
+
+               // 添加点击事件
+               lineDiv.addEventListener('click', () => {
+                   this.selectLogLine(lineDiv, index);
+               });
+
+               return lineDiv;
+           }
+
+           // 获取插件图标
+           getPluginIcon(pluginType) {
+               const icons = {
+                   'mybatis': '🗄️',
+                   'json': '📄',
+                   'error': '🔥',
+                   'security': '🔒',
+                   'default': '📝'
+               };
+               return icons[pluginType] || icons.default;
+           }
+
+           // 应用语法高亮
+           applySyntaxHighlighting(content, pluginType) {
+               let highlighted = this.escapeHtml(content);
+               
+               // 根据插件类型应用不同的高亮
+               switch (pluginType) {
+                   case 'mybatis':
+                       highlighted = this.highlightSql(highlighted);
+                       break;
+                   case 'json':
+                       highlighted = this.highlightJson(highlighted);
+                       break;
+                   case 'error':
+                       highlighted = this.highlightError(highlighted);
+                       break;
+                   default:
+                       highlighted = this.highlightGeneral(highlighted);
+               }
+
+               return highlighted;
+           }
+
+           // SQL 语法高亮
+           highlightSql(content) {
+               const sqlKeywords = ['SELECT', 'FROM', 'WHERE', 'INSERT', 'UPDATE', 'DELETE', 'CREATE', 'DROP', 'ALTER', 'JOIN', 'INNER', 'LEFT', 'RIGHT', 'OUTER'];
+               let highlighted = content;
+               
+               sqlKeywords.forEach(keyword => {
+                   const regex = new RegExp(`\\b${keyword}\\b`, 'gi');
+                   highlighted = highlighted.replace(regex, `<span class="log-content-keyword">${keyword}</span>`);
+               });
+               
+               return highlighted;
+           }
+
+           // JSON 语法高亮
+           highlightJson(content) {
+               let highlighted = content;
+               
+               // 高亮 JSON 键
+               highlighted = highlighted.replace(/"([^"]+)":/g, '<span class="log-content-json">"$1":</span>');
+               
+               // 高亮字符串值
+               highlighted = highlighted.replace(/: "([^"]+)"/g, ': <span class="log-content-json">"$1"</span>');
+               
+               return highlighted;
+           }
+
+           // 错误语法高亮
+           highlightError(content) {
+               let highlighted = content;
+               
+               // 高亮异常类名
+               const exceptionRegex = /(\w+Exception|\w+Error)/g;
+               highlighted = highlighted.replace(exceptionRegex, '<span class="log-content-error">$1</span>');
+               
+               return highlighted;
+           }
+
+           // 通用语法高亮
+           highlightGeneral(content) {
+               return content;
+           }
+
+           // 选择日志行
+           selectLogLine(lineElement, index) {
+               // 移除之前的选择
+               document.querySelectorAll('.log-line.selected').forEach(el => {
+                   el.classList.remove('selected');
+               });
+               
+               // 添加选择状态
+               lineElement.classList.add('selected');
+               this.currentLine = index + 1;
+               
+               // 更新状态栏
+               this.updateStatusBar();
+               
+               // 滚动到选中行
+               lineElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+           }
+
+           // 更新侧边栏导航
+           updateSidebarNavigation() {
+               const sidebarContent = document.getElementById('pluginCategories');
+               if (!sidebarContent) return;
+
+               console.log('📊 更新侧边栏导航，日志条目数:', this.logLines.length);
+
+               // 按日志级别分组
+               this.pluginCategories = {};
+               this.logLines.forEach((entry, index) => {
+                   const level = entry.level || 'Info';
+                   if (!this.pluginCategories[level]) {
+                       this.pluginCategories[level] = [];
+                   }
+                   this.pluginCategories[level].push({ entry, index });
+               });
+
+               // 渲染侧边栏
+               sidebarContent.innerHTML = '';
+               
+               // 添加文件信息
+               const fileInfoDiv = document.createElement('div');
+               fileInfoDiv.className = 'mb-4 p-3 bg-gray-50 dark:bg-gray-700 rounded-lg';
+               fileInfoDiv.innerHTML = `
+                   <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">📄 文件信息</h4>
+                   <div class="text-xs text-gray-600 dark:text-gray-400 space-y-1">
+                       <div>总行数: ${this.totalLines}</div>
+                       <div>解析时间: ${this.parseTime || '未知'}</div>
+                   </div>
+               `;
+               sidebarContent.appendChild(fileInfoDiv);
+               
+               // 添加日志级别统计
+               const levelStatsDiv = document.createElement('div');
+               levelStatsDiv.className = 'mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg';
+               levelStatsDiv.innerHTML = `
+                   <h4 class="text-sm font-medium text-blue-700 dark:text-blue-300 mb-2">📊 日志统计</h4>
+                   <div class="space-y-1">
+                       ${Object.entries(this.pluginCategories).map(([level, items]) => `
+                           <div class="flex justify-between text-xs">
+                               <span class="text-gray-600 dark:text-gray-400">${level}</span>
+                               <span class="font-medium text-blue-600 dark:text-blue-400">${items.length}</span>
+                           </div>
+                       `).join('')}
+                   </div>
+               `;
+               sidebarContent.appendChild(levelStatsDiv);
+               
+               // 添加快速导航
+               const quickNavDiv = document.createElement('div');
+               quickNavDiv.className = 'mb-4';
+               quickNavDiv.innerHTML = `
+                   <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">🚀 快速导航</h4>
+                   <div class="space-y-1">
+                       <button class="w-full text-left px-2 py-1 text-xs rounded hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors" onclick="app.scrollToTop()">
+                           📄 跳转到顶部
+                       </button>
+                       <button class="w-full text-left px-2 py-1 text-xs rounded hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors" onclick="app.scrollToBottom()">
+                           📄 跳转到底部
+                       </button>
+                       <button class="w-full text-left px-2 py-1 text-xs rounded hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors" onclick="app.filterByLevel('ERROR')">
+                           🔴 仅显示错误
+                       </button>
+                       <button class="w-full text-left px-2 py-1 text-xs rounded hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors" onclick="app.filterByLevel('WARN')">
+                           🟡 仅显示警告
+                       </button>
+                   </div>
+               `;
+               sidebarContent.appendChild(quickNavDiv);
+               
+               Object.entries(this.pluginCategories).forEach(([level, items]) => {
+                   const categoryDiv = document.createElement('div');
+                   categoryDiv.className = 'mb-2';
+                   
+                   const header = document.createElement('div');
+                   header.className = 'flex items-center justify-between p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer transition-colors';
+                   header.innerHTML = `
+                       <span class="text-sm">${this.getLevelIcon(level)} ${level}</span>
+                       <span class="text-xs text-gray-500 dark:text-gray-400">${items.length}</span>
+                   `;
+                   
+                   header.addEventListener('click', () => {
+                       this.filterByLevel(level);
+                   });
+                   
+                   categoryDiv.appendChild(header);
+                   sidebarContent.appendChild(categoryDiv);
+               });
+           }
+
+           // 获取日志级别图标
+           getLevelIcon(level) {
+               const icons = {
+                   'ERROR': '🔴',
+                   'WARN': '🟡', 
+                   'INFO': '🔵',
+                   'DEBUG': '🟢',
+                   'TRACE': '⚪'
+               };
+               return icons[level] || '📄';
+           }
+
+           // 按级别过滤
+           filterByLevel(level) {
+               console.log('🔍 按级别过滤:', level);
+               this.currentFilter = level;
+               this.filteredLines = this.logLines.filter(entry => entry.level === level);
+               this.renderLogLines();
+               this.updateStatusBar();
+           }
+
+           // 滚动到顶部
+           scrollToTop() {
+               const logLinesContainer = document.getElementById('logLines');
+               if (logLinesContainer) {
+                   logLinesContainer.scrollTop = 0;
+               }
+           }
+
+           // 滚动到底部
+           scrollToBottom() {
+               const logLinesContainer = document.getElementById('logLines');
+               if (logLinesContainer) {
+                   logLinesContainer.scrollTop = logLinesContainer.scrollHeight;
+               }
+           }
+
+           // 获取插件显示名称
+           getPluginDisplayName(pluginType) {
+               const names = {
+                   'mybatis': 'MyBatis',
+                   'json': 'JSON修复',
+                   'error': '异常',
+                   'security': '敏感信息',
+                   'default': '其他'
+               };
+               return names[pluginType] || pluginType;
+           }
+
+           // 按插件过滤
+           filterByPlugin(pluginType) {
+               this.currentFilter = pluginType;
+               this.filteredLines = this.logLines.filter(entry => {
+                   if (pluginType === 'all') return true;
+                   return entry.plugin_type === pluginType;
+               });
+               
+               this.renderLogLines();
+               this.updateFilterButtons();
+           }
+
+           // 更新过滤器按钮状态
+           updateFilterButtons() {
+               document.querySelectorAll('.filter-btn').forEach(btn => {
+                   btn.classList.remove('active');
+               });
+               
+               const activeBtn = document.querySelector(`[data-filter="${this.currentFilter}"]`);
+               if (activeBtn) {
+                   activeBtn.classList.add('active');
+               }
+           }
+
+           // 更新状态栏
+           updateStatusBar() {
+               const statusLine = document.getElementById('statusLine');
+               const statusColumn = document.getElementById('statusColumn');
+               const statusPlugins = document.getElementById('statusPlugins');
+               const statusSearch = document.getElementById('statusSearch');
+               const statusFile = document.getElementById('statusFile');
+
+               if (statusLine) {
+                   statusLine.textContent = `行 ${this.currentLine}/${this.totalLines}`;
+               }
+               
+               if (statusColumn) {
+                   statusColumn.textContent = `列 0`;
+               }
+               
+               if (statusPlugins) {
+                   const activePlugins = Object.keys(this.pluginCategories).join(', ');
+                   statusPlugins.textContent = `插件：${activePlugins || '无'}`;
+               }
+               
+               if (statusSearch) {
+                   statusSearch.textContent = `搜索：${this.searchResults.length} 处匹配`;
+               }
+               
+               if (statusFile) {
+                   statusFile.textContent = `文件：${this.currentFile ? this.currentFile.name : '无'}`;
+               }
+           }
+
+           // 搜索功能
+           performSearch(searchTerm) {
+               this.searchTerm = searchTerm;
+               this.searchResults = [];
+               
+               if (!searchTerm.trim()) {
+                   this.clearSearchHighlights();
+                   return;
+               }
+               
+               // 在日志行中搜索
+               this.logLines.forEach((entry, index) => {
+                   if (entry.content.toLowerCase().includes(searchTerm.toLowerCase())) {
+                       this.searchResults.push({ entry, index });
+                   }
+               });
+               
+               // 高亮搜索结果
+               this.highlightSearchResults();
+               
+               // 更新侧边栏搜索结果
+               this.updateSearchResults();
+               
+               // 更新状态栏
+               this.updateStatusBar();
+           }
+
+           // 高亮搜索结果
+           highlightSearchResults() {
+               document.querySelectorAll('.log-line').forEach(line => {
+                   const content = line.querySelector('.log-line-content');
+                   if (content && this.searchTerm) {
+                       const text = content.textContent;
+                       const highlighted = text.replace(
+                           new RegExp(this.searchTerm, 'gi'),
+                           `<span class="search-highlight">$&</span>`
+                       );
+                       content.innerHTML = highlighted;
+                   }
+               });
+           }
+
+           // 清除搜索高亮
+           clearSearchHighlights() {
+               document.querySelectorAll('.search-highlight').forEach(highlight => {
+                   const parent = highlight.parentNode;
+                   parent.replaceChild(document.createTextNode(highlight.textContent), highlight);
+                   parent.normalize();
+               });
+           }
+
+           // 更新搜索结果侧边栏
+           updateSearchResults() {
+               const searchResultsDiv = document.getElementById('searchResults');
+               const searchResultsList = document.getElementById('searchResultsList');
+               
+               if (!searchResultsDiv || !searchResultsList) return;
+               
+               if (this.searchResults.length > 0) {
+                   searchResultsDiv.style.display = 'block';
+                   searchResultsList.innerHTML = '';
+                   
+                   this.searchResults.forEach((result, index) => {
+                       const item = document.createElement('div');
+                       item.className = 'sidebar-nav-item';
+                       item.innerHTML = `
+                           <span class="sidebar-nav-icon">🔍</span>
+                           <span>${result.index + 1}: ${result.entry.content.substring(0, 50)}...</span>
+                       `;
+                       
+                       item.addEventListener('click', () => {
+                           this.scrollToLine(result.index);
+                       });
+                       
+                       searchResultsList.appendChild(item);
+                   });
+               } else {
+                   searchResultsDiv.style.display = 'none';
+               }
+           }
+
+           // 滚动到指定行
+           scrollToLine(lineIndex) {
+               const lineElement = document.querySelector(`[data-original-index="${lineIndex}"]`);
+               if (lineElement) {
+                   lineElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                   this.selectLogLine(lineElement, lineIndex);
+               }
+           }
+
+           // 侧边栏折叠/展开
+           toggleSidebar() {
+               const sidebar = document.getElementById('sidebar');
+               const toggleBtn = document.getElementById('sidebarToggle');
+               
+               if (!sidebar || !toggleBtn) return;
+               
+               this.sidebarCollapsed = !this.sidebarCollapsed;
+               
+               if (this.sidebarCollapsed) {
+                   sidebar.classList.add('sidebar-collapsed');
+                   toggleBtn.innerHTML = '<span class="text-sm">▶</span>';
+               } else {
+                   sidebar.classList.remove('sidebar-collapsed');
+                   toggleBtn.innerHTML = '<span class="text-sm">◀</span>';
+               }
+           }
+           
+           // 切换主题
+           async toggleTheme() {
+               try {
+                   const newMode = this.currentTheme === 'light' ? 'dark' : 'light';
+                   console.log('🔄 开始切换主题:', this.currentTheme, '->', newMode);
+                   
+                   const response = await fetch(`${this.API_BASE_URL}/api/config/theme`, {
+                       method: 'POST',
+                       headers: { 'Content-Type': 'application/json' },
+                       body: JSON.stringify({ mode: newMode })
+                   });
+                   
+                   if (response.ok) {
+                       const result = await response.json();
+                       if (result.success) {
+                           // 重新加载主题配置
+                           await this.loadConfigs();
+                           // 更新主题切换按钮图标
+                           this.updateThemeToggleIcon();
+                           console.log('✅ 主题切换成功:', newMode);
+                       }
+                   }
+               } catch (error) {
+                   console.error('❌ 主题切换失败:', error);
+               }
+           }
+           
+           // 更新主题配置
+           async updateThemeConfig(updates) {
+               try {
+                   const response = await fetch(`${this.API_BASE_URL}/api/config/theme`, {
+                       method: 'POST',
+                       headers: { 'Content-Type': 'application/json' },
+                       body: JSON.stringify(updates)
+                   });
+                   
+                   if (response.ok) {
+                       const result = await response.json();
+                       if (result.success) {
+                           // 重新加载主题配置
+                           await this.loadConfigs();
+                           console.log('✅ 主题配置更新成功');
+                       }
+                   }
+               } catch (error) {
+                   console.error('❌ 主题配置更新失败:', error);
+               }
+           }
+    
+    
+    async initElectron() {
+        console.log('🔎 检测 Electron 环境...');
+        
+        if (window.electronAPI) {
+            this.isElectronEnv = true;
+            console.log('✅ Electron 环境检测成功！');
             
-            console.log('🔍 开始 Tauri API 检测...');
-            console.log('window.__TAURI__ 存在:', typeof window.__TAURI__ !== 'undefined');
+            // 设置窗口控制
+            this.setupWindowControls();
             
-            if (typeof window.__TAURI__ !== 'undefined') {
-                console.log('window.__TAURI__ 内容:', window.__TAURI__);
-                console.log('tauri 对象存在:', typeof window.__TAURI__.tauri !== 'undefined');
-                console.log('invoke 方法存在:', typeof window.__TAURI__.tauri?.invoke !== 'undefined');
-            }
-            
-            // 检查Tauri API是否可用
-            if (typeof window.__TAURI__ !== 'undefined' && window.__TAURI__.tauri && window.__TAURI__.tauri.invoke) {
-                console.log('✅ Tauri API 已加载');
-                this.info('TAURI', 'Tauri 环境检测成功');
-                
-                // 测试一个简单的命令
-                try {
-                    console.log('🧪 测试 Tauri 命令...');
-                    const result = await window.__TAURI__.tauri.invoke('get_available_plugins');
-                    console.log('✅ Tauri 命令测试成功:', result);
-                    return true;
-                } catch (testError) {
-                    console.warn('⚠️ Tauri 命令测试失败:', testError);
-                    // 即使命令失败，API 仍然可用
-                    return true;
+            // 获取 API 配置
+            try {
+                const config = await window.electronAPI.getApiConfig();
+                if (config && config.port) {
+                    this.API_BASE_URL = `http://127.0.0.1:${config.port}`;
+                    console.log('🌐 API 配置:', this.API_BASE_URL);
                 }
-            } else {
-                console.warn('⚠️ Tauri API 不可用');
-                console.log('详细调试信息:', {
-                    hasTAURI: typeof window.__TAURI__ !== 'undefined',
-                    tauri: window.__TAURI__?.tauri,
-                    invoke: window.__TAURI__?.tauri?.invoke,
-                    dialog: window.__TAURI__?.dialog
-                });
-                this.warn('TAURI', 'Tauri 环境检测失败，请使用桌面应用启动');
-                return false;
+            } catch (error) {
+                console.warn('⚠️ 获取 API 配置失败:', error);
             }
-        } catch (error) {
-            console.error('❌ 初始化Tauri API失败:', error);
-            this.error('TAURI', `Tauri API 初始化失败: ${error.message}`);
-            return false;
+        } else {
+            console.log('🌐 运行在浏览器环境中');
         }
+    }
+    
+    setupWindowControls() {
+        // Electron 使用原生窗口控制，不需要自定义按钮
+        if (!this.isElectronEnv) return;
+        console.log('✅ 使用 Electron 原生窗口控制');
     }
     
     setupEventListeners() {
-        // 文件选择按钮
-        document.getElementById('openFileBtn').addEventListener('click', async (e) => {
-            console.log('📁 文件选择按钮被点击');
-            this.debug('UI_OPERATION', '文件选择按钮被点击');
-            try {
-                if (window.__TAURI__ && window.__TAURI__.dialog && window.__TAURI__.dialog.open) {
-                    const selected = await window.__TAURI__.dialog.open({
-                        multiple: false,
-                        filters: [{ name: 'Logs', extensions: ['log', 'txt'] }]
-                    });
-                    if (selected) {
-                        this.handleFile(selected);
-                        return;
-                    }
-                }
-            } catch (err) {
-                console.warn('使用 Tauri 对话框选择文件失败，回退到浏览器文件输入:', err);
-            }
-            document.getElementById('fileInput').click();
-        });
-        
-        // 文件输入变化
-        document.getElementById('fileInput').addEventListener('change', (e) => {
-            console.log('📁 文件输入变化事件触发');
-            this.debug('FILE_OPERATION', '文件输入变化事件触发');
-            if (e.target.files.length > 0) {
-                this.handleFile(e.target.files[0]);
-            }
-        });
-        
-        // 监听 fileInput 的 click 事件，追踪被谁触发
-        document.getElementById('fileInput').addEventListener('click', (e) => {
-            console.log('📁 fileInput click 事件被触发');
-            console.log('📁 调用堆栈:', new Error().stack);
-            this.debug('FILE_OPERATION', 'fileInput click 事件被触发');
-        });
-        
-        // 插件切换
-        document.getElementById('pluginSelect').addEventListener('change', (e) => {
-            this.switchPlugin(e.target.value);
-        });
-        
-        // 搜索输入
-        document.getElementById('searchInput').addEventListener('input', (e) => {
-            this.searchTerm = e.target.value;
-            this.info('SEARCH', `搜索输入: "${this.searchTerm}"`, { searchTerm: this.searchTerm });
-            this.filterLogs();
-        });
-        
-        // 清除搜索
-        document.getElementById('clearSearchBtn').addEventListener('click', () => {
-            this.clearSearch();
-        });
+        // 文件输入
+        const fileInput = document.getElementById('fileInput');
+        const fileDropZone = document.getElementById('fileDropZone');
+        // parseBtn 已移除
+        const clearBtn = document.getElementById('clearBtn');
         
         // 主题切换
-        document.getElementById('themeToggleBtn').addEventListener('click', () => {
-            this.toggleTheme();
-        });
+        const themeToggle = document.getElementById('themeToggle');
+        const themeSelect = document.getElementById('themeSelect');
         
-        // 调试面板
-        document.getElementById('debugToggleBtn').addEventListener('click', () => {
-            this.toggleDebugPanel();
-        });
+        // 插件管理
+        const pluginManager = document.getElementById('pluginManager');
+        const pluginModal = document.getElementById('pluginModal');
+        const pluginModalClose = document.getElementById('pluginModalClose');
         
-        document.getElementById('debugCloseBtn').addEventListener('click', () => {
-            this.toggleDebugPanel();
-        });
+        // 设置
+        const settingsBtn = document.getElementById('settingsBtn');
+        const settingsModal = document.getElementById('settingsModal');
+        const settingsModalClose = document.getElementById('settingsModalClose');
         
-        // 调试工具
-        document.getElementById('clearLogsBtn').addEventListener('click', () => {
-            this.clearDebugLogs();
-        });
+        // 搜索
+        const searchBtn = document.getElementById('searchBtn');
+        const searchOverlay = document.getElementById('searchOverlay');
+        const searchClose = document.getElementById('searchClose');
         
-        document.getElementById('exportLogsBtn').addEventListener('click', () => {
-            this.exportLogs();
-        });
+        // 导出
+        const exportBtn = document.getElementById('exportBtn');
         
-        document.getElementById('flushLogsBtn').addEventListener('click', () => {
-            this.manualFlushLogs();
-        });
-        
-        document.getElementById('performanceTestBtn').addEventListener('click', () => {
-            this.runPerformanceTest();
-        });
-        
-        // 性能面板
-        document.getElementById('performanceToggleBtn').addEventListener('click', () => {
-            this.togglePerformancePanel();
-        });
-        
-        document.getElementById('performanceCloseBtn').addEventListener('click', () => {
-            this.togglePerformancePanel();
-        });
-        
-        // 性能控制
-        document.getElementById('virtualScrollEnabled').addEventListener('change', (e) => {
-            this.virtualScroll.enabled = e.target.checked;
-            this.logDebug(`🎯 虚拟滚动: ${e.target.checked ? '启用' : '禁用'}`);
-        });
-        
-        // 注释掉原有的分块加载控制，因为现在由Rust后端处理
-        // document.getElementById('chunkLoadingEnabled').addEventListener('change', (e) => {
-        //     this.chunkLoading.enabled = e.target.checked;
-        //     this.logDebug(`📦 分块加载: ${e.target.checked ? '启用' : '禁用'}`);
-        // });
-        
-        // document.getElementById('chunkSize').addEventListener('change', (e) => {
-        //     this.chunkLoading.chunkSize = parseInt(e.target.value) || 100;
-        //     this.logDebug(`📦 块大小设置为: ${this.chunkLoading.chunkSize}`);
-        // });
-        
-        document.getElementById('cleanupMemoryBtn').addEventListener('click', () => {
-            this.cleanupMemoryViaBackend(); // 更改为调用后端内存清理API
-        });
-        
-        // 键盘快捷键
-        document.addEventListener('keydown', (e) => {
-            // 检查是否在输入框中，如果是则不处理快捷键
-            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) {
-                return;
-            }
-            
-            // Ctrl/Cmd + 快捷键
-            if (e.ctrlKey || e.metaKey) {
-                switch (e.key) {
-                    case 'o':
-                        console.log('🔍 Ctrl+O 快捷键被触发');
-                        this.debug('UI_OPERATION', 'Ctrl+O 快捷键触发文件选择');
-                        e.preventDefault();
-                        document.getElementById('fileInput').click();
-                        break;
-                    case 'f':
-                        e.preventDefault();
-                        document.getElementById('searchInput').focus();
-                        break;
-                    case 'r':
-                        e.preventDefault();
-                        this.clearSearch();
-                        break;
+        // 文件选择
+        if (fileInput) {
+            fileInput.addEventListener('change', (e) => this.handleFileSelect(e));
+        }
+
+        // 上传按钮
+        const uploadBtn = document.getElementById('uploadBtn');
+        if (uploadBtn) {
+            uploadBtn.addEventListener('click', () => {
+                if (fileInput) {
+                    fileInput.click();
                 }
-                return; // Ctrl/Cmd组合键处理完毕，不再处理方向键
-            }
-            
-            // 方向键导航 - 只有在没有按Ctrl/Cmd时才处理
-            // 重新启用键盘导航，但增加更多安全检查
-            if (this.virtualScroll.enabled && this.currentEntries.length > 0) {
-                // 只处理特定的导航键
-                const navigationKeys = ['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End'];
-                if (navigationKeys.includes(e.key)) {
-                    // 确保不在滚动过程中触发键盘导航
-                    const containers = [document.getElementById('originalLog'), document.getElementById('parsedLog')];
-                    const allContainersReady = containers.every(c => c && c._virtualContainer);
-                    
-                    if (allContainersReady) {
-                        this.handleKeyboardNavigation(e);
+            });
+        }
+
+        // 搜索功能
+        const searchInput = document.getElementById('searchInput');
+        if (searchInput) {
+            searchInput.addEventListener('input', (e) => {
+                this.performSearch(e.target.value);
+            });
+        }
+
+        // 过滤器按钮
+        document.querySelectorAll('.filter-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const filter = e.target.dataset.filter;
+                this.currentFilter = filter;
+                this.filterByPlugin(filter);
+            });
+        });
+
+        // 侧边栏折叠
+        const sidebarToggle = document.getElementById('sidebarToggle');
+        if (sidebarToggle) {
+            sidebarToggle.addEventListener('click', () => {
+                this.toggleSidebar();
+            });
+        }
+        
+        if (fileDropZone) {
+            fileDropZone.addEventListener('click', () => fileInput?.click());
+        }
+        
+        // 解析按钮已移除，选择文件后自动解析
+        
+        // 清空按钮
+        if (clearBtn) {
+            clearBtn.addEventListener('click', () => this.clearContent());
+        }
+        
+        // 主题切换
+        if (themeToggle) {
+            themeToggle.addEventListener('click', async () => {
+                await this.toggleTheme();
+            });
+        }
+        
+        if (themeSelect) {
+            themeSelect.addEventListener('change', (e) => this.setTheme(e.target.value));
+        }
+        
+        // 插件管理
+        if (pluginManager) {
+            pluginManager.addEventListener('click', () => this.showPluginManager());
+        }
+        
+        if (pluginModalClose) {
+            pluginModalClose.addEventListener('click', () => this.hideModal('pluginModal'));
+        }
+        
+        // 设置
+        if (settingsBtn) {
+            settingsBtn.addEventListener('click', () => this.showSettings());
+        }
+        
+        if (settingsModalClose) {
+            settingsModalClose.addEventListener('click', () => this.hideModal('settingsModal'));
+        }
+        
+        // 搜索
+        if (searchBtn) {
+            searchBtn.addEventListener('click', () => this.showSearch());
+        }
+        
+        if (searchClose) {
+            searchClose.addEventListener('click', () => this.hideModal('searchOverlay'));
+        }
+        
+        if (searchInput) {
+            searchInput.addEventListener('input', (e) => this.searchLogs(e.target.value));
+        }
+        
+        // 导出
+        if (exportBtn) {
+            exportBtn.addEventListener('click', () => this.exportResults());
+        }
+        
+        // 插件管理标签切换
+        this.setupPluginTabs();
+        
+        // 模态框点击外部关闭
+        this.setupModalClickOutside();
+    }
+    
+    setupPluginTabs() {
+        const tabButtons = document.querySelectorAll('[data-tab]');
+        const tabContents = document.querySelectorAll('[id$="Tab"]');
+        
+        tabButtons.forEach(button => {
+            button.addEventListener('click', () => {
+                const tabName = button.dataset.tab;
+                
+                // 更新按钮状态
+                tabButtons.forEach(btn => {
+                    btn.classList.remove('text-primary-600', 'dark:text-primary-400', 'border-primary-500');
+                    btn.classList.add('text-gray-500', 'dark:text-gray-400', 'border-transparent');
+                });
+                button.classList.add('text-primary-600', 'dark:text-primary-400', 'border-primary-500');
+                button.classList.remove('text-gray-500', 'dark:text-gray-400', 'border-transparent');
+                
+                // 更新内容显示
+                tabContents.forEach(content => {
+                    content.classList.add('hidden');
+                });
+                
+                const targetContent = document.getElementById(`${tabName}Tab`);
+                if (targetContent) {
+                    targetContent.classList.remove('hidden');
+                }
+                
+                // 加载对应内容
+                if (tabName === 'installed') {
+                    this.loadInstalledPlugins();
+                } else if (tabName === 'available') {
+                    this.loadAvailablePlugins();
+                }
+            });
+        });
+    }
+    
+    setupModalClickOutside() {
+        const modals = ['pluginModal', 'settingsModal', 'searchOverlay'];
+        
+        modals.forEach(modalId => {
+            const modal = document.getElementById(modalId);
+            if (modal) {
+                modal.addEventListener('click', (e) => {
+                    if (e.target === modal) {
+                        this.hideModal(modalId);
                     }
-                }
+                });
             }
         });
-        
-        // 添加全局点击事件监听器用于调试（可选）
-        // document.addEventListener('click', (e) => {
-        //     console.log('🐆 全局点击事件:', {
-        //         target: e.target.tagName + (e.target.id ? '#' + e.target.id : ''),
-        //         className: e.target.className,
-        //         textContent: e.target.textContent?.substring(0, 30)
-        //     });
-        // }, true);
-        
     }
     
     setupDragAndDrop() {
-        const app = document.getElementById('app');
+        const dropZone = document.getElementById('fileDropZone');
+        if (!dropZone) return;
         
-        app.addEventListener('dragover', (e) => {
+        dropZone.addEventListener('dragover', (e) => {
             e.preventDefault();
-            app.classList.add('drag-over');
+            dropZone.classList.add('border-primary-500', 'bg-primary-50', 'dark:bg-primary-900/20');
         });
         
-        app.addEventListener('dragleave', (e) => {
+        dropZone.addEventListener('dragleave', (e) => {
             e.preventDefault();
-            app.classList.remove('drag-over');
+            dropZone.classList.remove('border-primary-500', 'bg-primary-50', 'dark:bg-primary-900/20');
         });
         
-        app.addEventListener('drop', (e) => {
+        dropZone.addEventListener('drop', (e) => {
             e.preventDefault();
-            app.classList.remove('drag-over');
+            dropZone.classList.remove('border-primary-500', 'bg-primary-50', 'dark:bg-primary-900/20');
             
             const files = e.dataTransfer.files;
             if (files.length > 0) {
-                this.handleFile(files[0]);
+                this.handleFileSelect({ target: { files } });
             }
         });
     }
     
-    async handleFile(fileOrPath) {
-        // 统一处理：支持传入 File 对象或 绝对路径字符串
-        const filePath = typeof fileOrPath === 'string' ? fileOrPath : (fileOrPath.path || fileOrPath.name);
-        // 使用后端API验证文件
-        const validationResult = await this.validateFileWithBackend(filePath);
-        if (!validationResult.valid) {
-            this.showError(validationResult.error || '不支持的文件格式，请选择 .log 或 .txt 文件');
+    initTheme() {
+        // 从本地存储加载主题设置
+        const savedTheme = localStorage.getItem('logwhisper-theme') || 'light';
+        this.setTheme(savedTheme);
+        
+        // 更新主题选择器
+        const themeSelect = document.getElementById('themeSelect');
+        if (themeSelect) {
+            themeSelect.value = savedTheme;
+        }
+    }
+    
+    setTheme(theme) {
+        this.currentTheme = theme;
+        
+        // 更新 HTML 类
+        if (theme === 'dark') {
+            document.documentElement.classList.add('dark');
+        } else if (theme === 'light') {
+            document.documentElement.classList.remove('dark');
+        } else if (theme === 'auto') {
+            // 跟随系统主题
+            if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+                document.documentElement.classList.add('dark');
+            } else {
+                document.documentElement.classList.remove('dark');
+            }
+        }
+        
+        // 更新主题切换按钮图标
+        this.updateThemeToggleIcon();
+        
+        // 保存设置
+        localStorage.setItem('logwhisper-theme', theme);
+    }
+    
+    // 更新主题切换按钮图标
+    updateThemeToggleIcon() {
+        const themeToggle = document.getElementById('themeToggle');
+        if (themeToggle) {
+            const icon = themeToggle.querySelector('span');
+            if (icon) {
+                icon.textContent = this.currentTheme === 'light' ? '🌙' : '☀️';
+                console.log('🔄 主题按钮图标已更新:', this.currentTheme === 'light' ? '🌙' : '☀️');
+            }
+        }
+    }
+    
+    async checkApiStatus() {
+        console.log('🌐 开始检查 API 状态...');
+        console.time('⏱️ API 检查耗时');
+        
+        const statusDot = document.getElementById('statusDot');
+        
+        try {
+            console.log('📡 发送 API 请求到:', this.API_BASE_URL);
+            const response = await fetch(`${this.API_BASE_URL}/health`);
+            console.log('📡 API 响应状态:', response.status);
+            console.log('📡 API 响应头:', response.headers);
+            
+            if (response.ok) {
+                this.isApiAvailable = true;
+                if (statusDot) {
+                    statusDot.classList.remove('bg-gray-400');
+                    statusDot.classList.add('bg-green-500', 'animate-pulse');
+                }
+                console.log('✅ API 服务器连接成功，isApiAvailable设置为:', this.isApiAvailable);
+            } else {
+                throw new Error(`API 响应异常: ${response.status}`);
+            }
+        } catch (error) {
+            this.isApiAvailable = false;
+            console.warn('⚠️ API 服务器连接失败:', error.message);
+            console.warn('⚠️ 错误详情:', error);
+        } finally {
+            console.timeEnd('⏱️ API 检查耗时');
+            console.log('🔍 最终API状态:', this.isApiAvailable);
+        }
+        
+        // 返回 Promise 以支持链式调用
+        return Promise.resolve();
+    }
+    
+    initPluginManager() {
+        // 初始化插件数据
+        this.installedPlugins = [
+            {
+                id: 'mybatis-parser',
+                name: 'MyBatis SQL 解析器',
+                version: '1.0.0',
+                description: '解析 MyBatis SQL 日志，提取 SQL 语句和执行时间',
+                enabled: true,
+                author: 'LogWhisper Team'
+            },
+            {
+                id: 'docker-json-parser',
+                name: 'Docker JSON 解析器',
+                version: '1.0.0',
+                description: '解析 Docker JSON 格式日志',
+                enabled: true,
+                author: 'LogWhisper Team'
+            },
+            {
+                id: 'generic-text-parser',
+                name: '通用文本解析器',
+                version: '1.0.0',
+                description: '解析通用文本格式日志',
+                enabled: true,
+                author: 'LogWhisper Team'
+            }
+        ];
+        
+        this.availablePlugins = [
+            {
+                id: 'nginx-parser',
+                name: 'Nginx 访问日志解析器',
+                version: '1.0.0',
+                description: '解析 Nginx 访问日志，提取请求信息',
+                author: 'LogWhisper Team',
+                downloads: 1234,
+                rating: 4.8
+            },
+            {
+                id: 'apache-parser',
+                name: 'Apache 日志解析器',
+                version: '1.0.0',
+                description: '解析 Apache 访问日志',
+                author: 'LogWhisper Team',
+                downloads: 856,
+                rating: 4.6
+            }
+        ];
+    }
+    
+    showPluginManager() {
+        const modal = document.getElementById('pluginModal');
+        if (modal) {
+            modal.classList.remove('hidden');
+            this.loadInstalledPlugins();
+        }
+    }
+    
+    showSettings() {
+        const modal = document.getElementById('settingsModal');
+        if (modal) {
+            modal.classList.remove('hidden');
+        }
+    }
+    
+    showSearch() {
+        const overlay = document.getElementById('searchOverlay');
+        const input = document.getElementById('searchInput');
+        if (overlay) {
+            overlay.classList.remove('hidden');
+            if (input) {
+                input.focus();
+            }
+        }
+    }
+    
+    hideModal(modalId) {
+        const modal = document.getElementById(modalId);
+        if (modal) {
+            modal.classList.add('hidden');
+        }
+    }
+    
+    loadInstalledPlugins() {
+        const container = document.getElementById('installedPlugins');
+        if (!container) return;
+        
+        container.innerHTML = this.installedPlugins.map(plugin => `
+            <div class="p-4 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors duration-200">
+                <div class="flex items-center justify-between mb-2">
+                    <div>
+                        <h4 class="font-medium text-gray-900 dark:text-white">${plugin.name}</h4>
+                        <p class="text-sm text-gray-500 dark:text-gray-400">v${plugin.version}</p>
+                    </div>
+                    <div class="flex items-center space-x-2">
+                        <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${plugin.enabled ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200'}">
+                            ${plugin.enabled ? '已启用' : '已禁用'}
+                        </span>
+                        <button class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300" onclick="app.togglePlugin('${plugin.id}')">
+                            ${plugin.enabled ? '禁用' : '启用'}
+                        </button>
+                    </div>
+                </div>
+                <p class="text-sm text-gray-600 dark:text-gray-400 mb-3">${plugin.description}</p>
+                <div class="flex items-center justify-between">
+                    <span class="text-xs text-gray-500 dark:text-gray-400">作者: ${plugin.author}</span>
+                    <div class="flex space-x-2">
+                        <button class="text-xs text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300" onclick="app.configurePlugin('${plugin.id}')">
+                            配置
+                        </button>
+                        <button class="text-xs text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300" onclick="app.uninstallPlugin('${plugin.id}')">
+                            卸载
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `).join('');
+    }
+    
+    loadAvailablePlugins() {
+        const container = document.getElementById('availablePlugins');
+        if (!container) return;
+        
+        container.innerHTML = this.availablePlugins.map(plugin => `
+            <div class="p-4 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors duration-200">
+                <div class="flex items-center justify-between mb-2">
+                    <div>
+                        <h4 class="font-medium text-gray-900 dark:text-white">${plugin.name}</h4>
+                        <p class="text-sm text-gray-500 dark:text-gray-400">v${plugin.version}</p>
+                    </div>
+                    <button class="px-3 py-1 bg-primary-600 hover:bg-primary-700 text-white text-sm rounded-lg transition-colors duration-200" onclick="app.installPlugin('${plugin.id}')">
+                        安装
+                    </button>
+                </div>
+                <p class="text-sm text-gray-600 dark:text-gray-400 mb-3">${plugin.description}</p>
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center space-x-4 text-xs text-gray-500 dark:text-gray-400">
+                        <span>作者: ${plugin.author}</span>
+                        <span>下载: ${plugin.downloads}</span>
+                        <span>评分: ${plugin.rating} ⭐</span>
+                    </div>
+                </div>
+            </div>
+        `).join('');
+    }
+    
+    togglePlugin(pluginId) {
+        const plugin = this.installedPlugins.find(p => p.id === pluginId);
+        if (plugin) {
+            plugin.enabled = !plugin.enabled;
+            this.loadInstalledPlugins();
+            console.log(`插件 ${plugin.name} ${plugin.enabled ? '已启用' : '已禁用'}`);
+        }
+    }
+    
+    configurePlugin(pluginId) {
+        console.log(`配置插件: ${pluginId}`);
+        // 这里可以实现插件配置功能
+    }
+    
+    uninstallPlugin(pluginId) {
+        if (confirm('确定要卸载此插件吗？')) {
+            this.installedPlugins = this.installedPlugins.filter(p => p.id !== pluginId);
+            this.loadInstalledPlugins();
+            console.log(`插件 ${pluginId} 已卸载`);
+        }
+    }
+    
+    installPlugin(pluginId) {
+        const plugin = this.availablePlugins.find(p => p.id === pluginId);
+        if (plugin) {
+            // 模拟安装过程
+            this.installedPlugins.push({
+                ...plugin,
+                enabled: true
+            });
+            this.loadInstalledPlugins();
+            console.log(`插件 ${plugin.name} 已安装`);
+        }
+    }
+    
+    handleFileSelect(event) {
+        console.log('📁 文件选择事件触发');
+        const files = event.target.files;
+        console.log('📁 选择的文件数量:', files.length);
+        
+        if (files.length > 0) {
+            const file = files[0];
+            this.currentFile = file;
+            
+            console.log('📁 文件已选择:', file.name);
+            console.log('📁 文件大小:', file.size, 'bytes');
+            console.log('📁 文件类型:', file.type);
+            
+            // 更新文件信息显示
+            this.updateFileInfo(file);
+            
+            // 选择文件后直接触发解析
+            console.log('🚀 开始自动解析...');
+            console.log('🔍 当前API状态:', this.isApiAvailable);
+            this.parseLog();
+        } else {
+            console.log('⚠️ 没有选择文件');
+        }
+    }
+    
+    // 更新文件信息显示
+    updateFileInfo(file) {
+        const fileInfoElement = document.getElementById('fileInfo');
+        const statusFile = document.getElementById('statusFile');
+        const statusFileSize = document.getElementById('statusFileSize');
+        const statusParseTime = document.getElementById('statusParseTime');
+        
+        if (file) {
+            const fileSize = this.formatFileSize(file.size);
+            
+            // 更新编辑器工具栏中的文件信息
+            if (fileInfoElement) {
+                fileInfoElement.innerHTML = `<span class="inline-block mr-1">📄</span>${file.name} (${fileSize})`;
+                fileInfoElement.className = 'text-sm text-green-600 dark:text-green-400';
+            }
+            
+            // 更新底部状态栏
+            if (statusFile) {
+                statusFile.textContent = `文件：${file.name}`;
+            }
+            if (statusFileSize) {
+                statusFileSize.textContent = `大小：${fileSize}`;
+                statusFileSize.classList.remove('hidden');
+            }
+        }
+    }
+    
+    // 加载下一个分块
+    async loadNextChunk(filePath, chunkIndex, chunkSize) {
+        try {
+            console.log('📦 加载第', chunkIndex + 1, '块...');
+            
+            const response = await fetch(`${this.API_BASE_URL}/api/parse`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    file_path: filePath,
+                    plugin: 'auto',
+                    chunk_size: chunkSize,
+                    chunk_index: chunkIndex
+                })
+            });
+            
+            if (response.ok) {
+                const result = await response.json();
+                console.log('📦 分块', chunkIndex + 1, '加载完成:', result.entries.length, '条');
+                
+                if (result.success && result.entries) {
+                    // 追加到现有条目
+                    this.currentEntries = this.currentEntries.concat(result.entries);
+                    this.chunkInfo = result.chunk_info;
+                    
+                    // 追加渲染
+                    this.appendLogEntries(result.entries);
+                    
+                    // 如果有更多块，继续请求
+                    if (result.chunk_info && result.chunk_info.has_more) {
+                        this.loadNextChunk(filePath, result.chunk_info.current_chunk + 1, chunkSize);
+                    } else {
+                        console.log('✅ 所有分块加载完成');
+                    }
+                }
+            } else {
+                console.error('❌ 分块请求失败:', response.status);
+            }
+        } catch (error) {
+            console.error('❌ 加载分块失败:', error);
+        }
+    }
+    
+    // 追加日志条目到DOM
+    appendLogEntries(entries) {
+        const logLinesContainer = document.getElementById('logLines');
+        if (!logLinesContainer) return;
+        
+        entries.forEach((entry, index) => {
+            const lineElement = this.createLogLineElement(entry, this.currentEntries.length - entries.length + index);
+            logLinesContainer.appendChild(lineElement);
+        });
+        
+        console.log('📝 追加渲染完成，当前总行数:', this.currentEntries.length);
+    }
+    
+    // 更新解析时间显示
+    updateParseTime(parseTime) {
+        const statusParseTime = document.getElementById('statusParseTime');
+        if (statusParseTime && parseTime) {
+            statusParseTime.textContent = `解析：${parseTime}`;
+            statusParseTime.classList.remove('hidden');
+        }
+    }
+    
+    // 格式化文件大小
+    formatFileSize(bytes) {
+        if (bytes === 0) return '0 B';
+        const k = 1024;
+        const sizes = ['B', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+    
+    // updateParseButton 方法已移除，选择文件后自动解析
+    
+    async parseLog() {
+        if (!this.currentFile) {
+            alert('请先选择日志文件');
             return;
         }
         
-        // 大文件检测和警告
-        const fileSize = validationResult.fileSize || (typeof fileOrPath !== 'string' ? fileOrPath.size : 0);
-        const fileSizeMB = (fileSize / (1024 * 1024)).toFixed(2);
+        console.log('🔍 检查API可用性:', this.isApiAvailable);
+        console.log('🔍 API基础URL:', this.API_BASE_URL);
         
-        this.info('FILE_OPERATION', `文件大小: ${fileSizeMB}MB`, { fileSize, fileSizeMB });
-        
-        // 大文件警告
-        if (fileSize > 100 * 1024 * 1024) { // 100MB
-            const confirmed = confirm(
-                `正在加载大文件（${fileSizeMB}MB）。\n` +
-                `将使用Rust后端的高性能解析和分块加载。\n\n` +
-                `继续加载吗？`
-            );
-            
-            if (!confirmed) {
+        if (!this.isApiAvailable) {
+            console.warn('⚠️ API不可用，尝试重新检查...');
+            await this.checkApiStatus();
+            if (!this.isApiAvailable) {
+                alert('API 服务器不可用，请检查连接');
                 return;
             }
         }
         
-        this.showLoading('正在解析文件...');
-        const displayName = typeof fileOrPath === 'string' ? this.basename(filePath) : fileOrPath.name;
-        this.info('FILE_OPERATION', `开始处理文件: ${displayName}`, { 
-            fileName: displayName, 
-            fileSize: fileSize, 
-            formattedSize: this.formatFileSize(fileSize) 
-        });
-        
-        const startTime = performance.now();
+        this.showLoading();
         
         try {
-            // 先初始化文件分块元数据
-            this.debug('BACKEND_API', '初始化文件分块...');
-            const chunkMetadata = await this.initializeFileChunks(filePath);
+            // 获取文件路径
+            console.log('📁 获取文件路径...');
+            console.log('📁 文件对象:', this.currentFile);
             
-            if (chunkMetadata) {
-                // 使用Rust后端的分块加载
-                await this.loadFileWithBackend(chunkMetadata);
+            // 尝试不同的路径获取方式
+            let filePath;
+            let useFilePath = false;
+            
+            if (this.currentFile.path) {
+                filePath = this.currentFile.path;
+                useFilePath = true;
+                console.log('📁 使用文件路径:', filePath);
+            } else if (this.currentFile.webkitRelativePath) {
+                filePath = this.currentFile.webkitRelativePath;
+                useFilePath = true;
+                console.log('📁 使用相对路径:', filePath);
+            } else {
+                console.log('📁 无法获取文件路径，回退到内容传输');
+                useFilePath = false;
             }
             
-            const parseTime = performance.now() - startTime;
-            this.debugStats.parseCount++;
-            this.debugStats.totalParseTime += parseTime;
+            // 检查文件大小，决定是否使用分块处理
+            const fileSize = this.currentFile.size;
+            const useChunked = fileSize > 500000; // 500KB以上使用分块
+            const chunkSize = useChunked ? 1000 : null; // 分块大小（行数）
             
-            this.currentFile = { path: filePath, name: displayName, size: fileSize };
+            console.log('📊 文件大小:', fileSize, 'bytes');
+            console.log('📊 使用分块处理:', useChunked);
+            console.log('📊 分块大小:', chunkSize);
             
-            this.info('PARSER', `解析成功: ${this.currentEntries.length} 行日志，耗时 ${Math.round(parseTime)}ms`, { 
-                entryCount: this.currentEntries.length, 
-                parseTime: Math.round(parseTime),
-                successCount: this.currentEntries.filter(r => !r.is_error).length,
-                errorCount: this.currentEntries.filter(r => r.is_error).length
+            console.log('🌐 发送解析请求到:', `${this.API_BASE_URL}/api/parse`);
+            
+            let requestBody;
+            if (useFilePath) {
+                // 使用文件路径模式
+                requestBody = {
+                    file_path: filePath,
+                    plugin: 'auto',
+                    chunk_size: chunkSize,
+                    chunk_index: 0
+                };
+                console.log('🌐 使用文件路径模式');
+            } else {
+                // 回退到内容传输模式
+                console.log('📖 读取文件内容...');
+                const content = await this.readFileContent(this.currentFile);
+                console.log('📖 文件内容长度:', content.length);
+                
+                requestBody = {
+                    content: content,
+                    plugin: 'auto',
+                    chunk_size: chunkSize,
+                    chunk_index: 0
+                };
+                console.log('🌐 使用内容传输模式');
+            }
+            
+            console.log('🌐 请求体:', requestBody);
+            console.log('🌐 请求体JSON:', JSON.stringify(requestBody));
+            
+            const requestStartTime = performance.now();
+            const response = await fetch(`${this.API_BASE_URL}/api/parse`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(requestBody)
             });
             
-            this.renderResults();
-            this.updateStatus(`已加载 ${this.currentEntries.length} 行日志`);
-            this.updateFileInfo({ name: displayName, size: fileSize });
+            const requestEndTime = performance.now();
+            console.log('📡 解析API响应状态:', response.status);
+            console.log('📡 解析API响应头:', response.headers);
+            console.log('⏱️ 请求耗时:', (requestEndTime - requestStartTime).toFixed(2), 'ms');
             
-            this.updateDebugStats();
-            
+            if (response.ok) {
+                const result = await response.json();
+                console.log('📊 解析结果:', {
+                    success: result.success,
+                    entriesCount: result.entries?.length || 0,
+                    stats: result.stats
+                });
+                
+                // 保存解析时间
+                if (result.stats && result.stats.parse_time_ms) {
+                    this.parseTime = `${result.stats.parse_time_ms}ms`;
+                    this.updateParseTime(this.parseTime);
+                }
+                
+                // 检查是否是分块数据
+                if (result.chunk_info) {
+                    console.log('📊 分块信息:', result.chunk_info);
+                    console.log('📊 当前块:', result.chunk_info.current_chunk + 1, '/', result.chunk_info.total_chunks);
+                    console.log('📊 还有更多:', result.chunk_info.has_more);
+                    
+                    // 使用分块渲染
+                    this.currentEntries = result.entries;
+                    this.chunkInfo = result.chunk_info;
+                    console.log('📊 开始分块渲染', result.entries.length, '条日志条目');
+                    this.renderLogEditorChunked(result.entries);
+                    
+                    // 如果有更多块，继续请求
+                    if (result.chunk_info.has_more) {
+                        this.loadNextChunk(filePath, result.chunk_info.current_chunk + 1, chunkSize);
+                    }
+                } else {
+                    // 传统全量处理
+                    if (result.success && result.entries) {
+                        this.currentEntries = result.entries;
+                        console.log('📊 开始全量渲染', result.entries.length, '条日志条目');
+                        this.renderLogEditorChunked(this.currentEntries);
+                    } else {
+                        console.log('📊 使用传统显示方式');
+                        this.displayResults(result);
+                    }
+                }
+            } else {
+                console.error('❌ API请求失败:', response.status, response.statusText);
+                
+                // 尝试读取错误响应体
+                try {
+                    const errorText = await response.text();
+                    console.error('❌ 错误响应体:', errorText);
+                } catch (e) {
+                    console.error('❌ 无法读取错误响应体:', e);
+                }
+                
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
         } catch (error) {
-            const parseTime = performance.now() - startTime;
-            this.logDebug(`💥 解析异常: ${error.message}，耗时 ${Math.round(parseTime)}ms`, 'error');
-            console.error('解析文件失败:', error);
-            this.showError(`解析错误: ${error.message}`);
+            console.error('解析失败:', error);
+            alert('解析失败: ' + error.message);
         } finally {
             this.hideLoading();
         }
     }
     
-    // ===== Rust后端分块加载API =====
-    
-    /**
-     * 初始化文件分块元数据
-     */
-    async initializeFileChunks(filePath) {
-        try {
-            this.debug('BACKEND_API', `初始化文件分块: ${filePath}`);
-            const metadata = await this.invokeTauriCommand('initialize_file_chunks', {
-                file_path: filePath
-            });
-            
-            this.backendChunkLoader.initialized = true;
-            this.backendChunkLoader.currentFileMetadata = metadata;
-            this.backendChunkLoader.totalChunks = metadata.total_chunks;
-            this.backendChunkLoader.chunkSize = metadata.chunk_size;
-            
-            this.info('BACKEND_API', `文件分块初始化成功: ${metadata.total_chunks} 块`, metadata);
-            return metadata;
-        } catch (error) {
-            this.error('BACKEND_API', `文件分块初始化失败: ${error.message}`);
-            return null;
-        }
-    }
-    
-    /**
-     * 加载指定的数据块
-     */
-    async loadChunks(chunkIndices, priority = 'Normal') {
-        try {
-            const request = {
-                file_path: this.backendChunkLoader.currentFileMetadata?.file_path || '',
-                chunk_indices: chunkIndices,
-                plugin_name: this.currentPlugin,
-                priority: priority
-            };
-            
-            this.debug('BACKEND_API', `加载数据块: [${chunkIndices.join(', ')}]`);
-            const response = await this.invokeTauriCommand('load_chunks', request);
-            
-            if (response.success) {
-                // 更新已加载块集合
-                chunkIndices.forEach(index => {
-                    this.backendChunkLoader.loadedChunks.add(index);
-                });
-                
-                this.info('BACKEND_API', `数据块加载成功: ${Object.keys(response.chunks).length} 块`);
-                return response;
-            } else {
-                throw new Error(response.error || '数据块加载失败');
-            }
-        } catch (error) {
-            this.error('BACKEND_API', `数据块加载失败: ${error.message}`);
-            throw error;
-        }
-    }
-    
-    /**
-     * 使用Rust后端加载文件
-     */
-    async loadFileWithBackend(chunkMetadata) {
-        this.info('BACKEND_API', '使用Rust后端分块加载文件');
-        
-        // 先加载第一个块以快速显示内容
-        const firstChunkResponse = await this.loadChunks([0], 'Immediate');
-        
-        if (firstChunkResponse.chunks[0]) {
-            this.currentEntries = firstChunkResponse.chunks[0];
-            this.renderResults();
-            this.updateStatus(`已加载第1块，总共${chunkMetadata.total_chunks}块`);
-        }
-        
-        // 预加载接下来的几个块
-        if (chunkMetadata.total_chunks > 1) {
-            const preloadChunks = [];
-            for (let i = 1; i < Math.min(6, chunkMetadata.total_chunks); i++) {
-                preloadChunks.push(i);
-            }
-            
-            if (preloadChunks.length > 0) {
-                this.loadChunks(preloadChunks, 'High').catch(error => {
-                    this.warn('BACKEND_API', `预加载块失败: ${error.message}`);
-                });
-            }
-        }
-        
-        // 初始化虚拟滚动，并设置需要时加载其他块
-        if (this.virtualScroll.enabled) {
-            this.setupBackendVirtualScroll(chunkMetadata);
-        }
-    }
-    
-    /**
-     * 设置后端支持的虚拟滚动
-     */
-    setupBackendVirtualScroll(chunkMetadata) {
-        this.virtualScroll.totalItems = chunkMetadata.total_lines;
-        
-        // 设置滚动监听，在需要时加载对应的块
-        this.setupScrollListener(() => {
-            this.checkAndLoadRequiredChunksFromBackend();
+    readFileContent(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (e) => resolve(e.target.result);
+            reader.onerror = (e) => reject(e);
+            reader.readAsText(file);
         });
     }
     
-    /**
-     * 检查并加载需要的数据块（后端版本）
-     */
-    async checkAndLoadRequiredChunksFromBackend() {
-        if (!this.backendChunkLoader.initialized) return;
+    displayResults(result) {
+        const welcomeScreen = document.getElementById('welcomeScreen');
+        const resultsContainer = document.getElementById('resultsContainer');
+        const resultsContent = document.getElementById('resultsContent');
+        const resultsStats = document.getElementById('resultsStats');
         
-        const startChunk = Math.floor(this.virtualScroll.startIndex / this.backendChunkLoader.chunkSize);
-        const endChunk = Math.floor(this.virtualScroll.endIndex / this.backendChunkLoader.chunkSize);
+        if (welcomeScreen) welcomeScreen.classList.add('hidden');
+        if (resultsContainer) resultsContainer.classList.remove('hidden');
         
-        const chunksToLoad = [];
-        for (let chunkIndex = startChunk; chunkIndex <= endChunk; chunkIndex++) {
-            if (!this.backendChunkLoader.loadedChunks.has(chunkIndex)) {
-                chunksToLoad.push(chunkIndex);
-            }
+        if (resultsStats) {
+            resultsStats.textContent = `共解析 ${result.entries?.length || 0} 条日志，耗时 ${result.stats?.parse_time || 0}ms`;
         }
         
-        if (chunksToLoad.length > 0) {
-            this.debug('BACKEND_API', `需要加载的数据块: [${chunksToLoad.join(', ')}]`);
-            try {
-                const response = await this.loadChunks(chunksToLoad, 'Normal');
-                
-                // 将新加载的数据合并到当前条目中
-                this.mergeChunksToCurrentEntries(response.chunks);
-                this.renderVisibleItems();
-            } catch (error) {
-                this.error('BACKEND_API', `动态加载数据块失败: ${error.message}`);
-            }
-        }
-    }
-    
-    /**
-     * 将新加载的数据块合并到当前条目
-     */
-    mergeChunksToCurrentEntries(chunks) {
-        Object.entries(chunks).forEach(([chunkIndex, chunkData]) => {
-            const startIndex = parseInt(chunkIndex) * this.backendChunkLoader.chunkSize;
-            chunkData.forEach((entry, index) => {
-                this.currentEntries[startIndex + index] = entry;
-            });
-        });
-    }
-    
-    /**
-     * 获取内存信息（后端API）
-     */
-    async getMemoryInfoFromBackend() {
-        try {
-            const memoryInfo = await this.invokeTauriCommand('get_memory_info', {});
-            this.debug('BACKEND_API', '获取内存信息成功', memoryInfo);
-            return memoryInfo;
-        } catch (error) {
-            this.error('BACKEND_API', `获取内存信息失败: ${error.message}`);
-            return null;
-        }
-    }
-    
-    /**
-     * 清理内存（后端API）
-     */
-    async cleanupMemoryViaBackend() {
-        try {
-            this.info('BACKEND_API', '开始后端内存清理...');
-            const cleanedCount = await this.invokeTauriCommand('cleanup_memory', {});
-            
-            this.info('BACKEND_API', `后端内存清理完成: 清理了 ${cleanedCount} 个块`);
-            this.showToast(`内存清理完成，清理了 ${cleanedCount} 个数据块`);
-            
-            // 更新性能统计
-            this.updatePerformanceStatsFromBackend();
-        } catch (error) {
-            this.error('BACKEND_API', `后端内存清理失败: ${error.message}`);
-            this.showToast('内存清理失败，请查看控制台');
-        }
-    }
-    
-    /**
-     * 从后端更新性能统计
-     */
-    async updatePerformanceStatsFromBackend() {
-        const memoryInfo = await this.getMemoryInfoFromBackend();
-        if (memoryInfo) {
-            // 更新性能面板显示
-            document.getElementById('memoryUsage').textContent = 
-                this.formatFileSize(memoryInfo.current_usage);
-            document.getElementById('cachedChunks').textContent = 
-                `${memoryInfo.cached_chunks} / ${memoryInfo.max_cached_chunks}`;
-            document.getElementById('gcCount').textContent = memoryInfo.gc_count;
-        }
-    }
-    
-    // ===== 结束 Rust后端分块加载API =====
-    
-    /**
-     * 使用后端API验证文件
-     */
-    async validateFileWithBackend(filePath) {
-        try {
-            this.debug('FILE_VALIDATION', `使用后端API验证文件: ${filePath}`);
-            
-            const response = await this.invokeTauriCommand('validate_file', {
-                file_path: filePath
-            });
-            
-            if (response.valid) {
-                this.debug('FILE_VALIDATION', `后端验证通过: ${filePath} (${this.formatFileSize(response.file_size || 0)})`);
-            return {
-                    valid: true,
-                    fileSize: response.file_size || 0,
-                    fileType: response.file_type
-                };
-            } else {
-                this.warn('FILE_VALIDATION', `后端验证失败: ${response.error}`);
-            return {
-                    valid: false,
-                    error: response.error
-                };
-            }
-        } catch (error) {
-            this.error('FILE_VALIDATION', `后端验证API调用失败: ${error.message}`);
-            return { valid: false, error: error.message };
-        }
-    }
-    
-    /**
-     * 前端文件验证（备用方案）
-     */
-    isValidFile(file) {
-        if (!file) {
-            return false;
-        }
-        
-        // 检查文件类型
-        const validExtensions = ['.log', '.txt'];
-        const fileName = file.name.toLowerCase();
-        const hasValidExtension = validExtensions.some(ext => fileName.endsWith(ext));
-        
-        if (!hasValidExtension) {
-            this.debug('FILE_VALIDATION', `文件扩展名无效: ${file.name}`);
-            return false;
-        }
-        
-        // 检查文件大小（可选）
-        const maxSize = 1024 * 1024 * 1024; // 1GB
-        if (file.size > maxSize) {
-            this.warn('FILE_VALIDATION', `文件过大: ${this.formatFileSize(file.size)}`);
-            // 不直接拒绝，让用户决定
-        }
-        
-        this.debug('FILE_VALIDATION', `前端验证通过: ${file.name} (${this.formatFileSize(file.size)})`);
-        return true;
-    }
-    
-    async invokeTauriCommand(command, args) {
-        // 检查 Tauri 环境
-        if (typeof window.__TAURI__ !== 'undefined' && window.__TAURI__.tauri && window.__TAURI__.tauri.invoke) {
-            try {
-                return await window.__TAURI__.tauri.invoke(command, args);
-            } catch (error) {
-                console.error(`Tauri 命令执行失败: ${command}`, error);
-                throw error;
-            }
-        }
-        
-        // 如果不在 Tauri 环境中，提供更友好的错误信息
-        const message = '未检测到 Tauri 运行环境。请使用以下方式启动应用：\n\n1. 运行 `cargo tauri dev` 启动开发模式\n2. 运行 `cargo tauri build` 构建应用\n3. 不要直接用浏览器打开 index.html';
-        console.error(message);
-        this.showError(message);
-        throw new Error(message);
-    }
-    
-    
-    renderResults() {
-        if (this.virtualScroll.enabled) {
-            this.renderVirtualScroll();
-        } else {
-        this.renderOriginalLog();
-        this.renderParsedLog();
-        }
-    }
-    
-    renderOriginalLog() {
-        const container = document.getElementById('originalLog');
-        container.innerHTML = '';
-        
-        if (this.currentEntries.length === 0) {
-            container.innerHTML = `
-                <div class="text-gray-500 text-center py-8">
-                    <div class="text-4xl mb-4">📄</div>
-                    <p>没有日志数据</p>
-                </div>
-            `;
-            return;
-        }
-        
-        this.currentEntries.forEach(entry => {
-            const div = document.createElement('div');
-            div.className = `log-line ${this.getLogLevelClass(entry.original.level)} fade-in`;
-            div.innerHTML = `
-                <div class="text-xs text-gray-500 mb-1">第 ${entry.original.line_number} 行</div>
-                <div class="font-mono text-sm">${this.escapeHtml(entry.original.content)}</div>
-            `;
-            container.appendChild(div);
-        });
-    }
-    
-    renderParsedLog() {
-        const container = document.getElementById('parsedLog');
-        container.innerHTML = '';
-        
-        if (this.currentEntries.length === 0) {
-            container.innerHTML = `
-                <div class="text-gray-500 text-center py-8">
-                    <div class="text-4xl mb-4">🔍</div>
-                    <p>没有解析结果</p>
-                </div>
-            `;
-            return;
-        }
-        
-        this.currentEntries.forEach(entry => {
-            if (entry.rendered_blocks.length === 0) return;
-            
-            const div = document.createElement('div');
-            div.className = `mb-4 ${entry.is_error ? 'bg-red-50' : entry.is_warning ? 'bg-yellow-50' : ''} fade-in`;
-            
-            let html = `<div class="text-xs text-gray-500 mb-2">第 ${entry.original.line_number} 行</div>`;
-            
-            entry.rendered_blocks.forEach(block => {
-                html += this.renderBlock(block);
-            });
-            
-            div.innerHTML = html;
-            container.appendChild(div);
-        });
-    }
-    
-    renderBlock(block) {
-        const blockClass = this.getBlockClass(block.block_type);
-        const icon = this.getBlockIcon(block.block_type);
-        
-        return `
-            <div class="rendered-block ${blockClass} slide-in">
-                <div class="block-header">
-                    <div class="block-title">
-                        <span>${icon}</span>
-                        <span>${block.title}</span>
+        if (resultsContent && result.entries) {
+            resultsContent.innerHTML = result.entries.map(entry => `
+                <div class="p-4 border border-gray-200 dark:border-gray-700 rounded-lg mb-3 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors duration-200 ${this.getLogEntryClass(entry.level)}" style="max-width: 100%; overflow: hidden;">
+                    <div class="flex items-center justify-between mb-2">
+                        <div class="flex items-center space-x-2">
+                            <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${this.getLogLevelClass(entry.level)}">
+                                ${entry.level || 'INFO'}
+                            </span>
+                            ${entry.timestamp ? `<span class="text-xs text-gray-500 dark:text-gray-400">${entry.timestamp}</span>` : ''}
+                        </div>
                     </div>
-                    <div class="block-actions">
-                        <button onclick="app.copyToClipboard('${block.id}')" 
-                                class="copy-btn">
-                            复制
-                        </button>
-                    </div>
+                    <div class="text-sm text-gray-700 dark:text-gray-300 font-mono whitespace-pre-wrap break-words overflow-wrap-anywhere" style="word-break: break-all; max-width: 100%;">${this.escapeHtml(entry.content)}</div>
                 </div>
-                <div class="block-content">${this.escapeHtml(block.formatted_content)}</div>
-            </div>
-        `;
+            `).join('');
+        }
+        
+        this.currentEntries = result.entries || [];
     }
     
-    getBlockClass(blockType) {
-        const classes = {
-            'Sql': 'sql',
-            'Json': 'json',
-            'Error': 'error',
-            'Warning': 'warning',
-            'Info': 'info',
-            'Raw': 'raw'
+    getLogEntryClass(level) {
+        const levelMap = {
+            'ERROR': 'border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20',
+            'WARN': 'border-yellow-200 dark:border-yellow-800 bg-yellow-50 dark:bg-yellow-900/20',
+            'INFO': 'border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20',
+            'DEBUG': 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/20'
         };
-        return classes[blockType] || 'raw';
-    }
-    
-    getBlockIcon(blockType) {
-        const icons = {
-            'Sql': '🔍',
-            'Json': '📄',
-            'Error': '⚠️',
-            'Warning': '⚠️',
-            'Info': 'ℹ️',
-            'Raw': '📝'
-        };
-        return icons[blockType] || '📝';
+        return levelMap[level] || levelMap['INFO'];
     }
     
     getLogLevelClass(level) {
-        const classes = {
-            'Error': 'error',
-            'Warn': 'warning',
-            'Info': 'info',
-            'Debug': 'debug'
+        const levelMap = {
+            'ERROR': 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200',
+            'WARN': 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200',
+            'INFO': 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200',
+            'DEBUG': 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
         };
-        return classes[level] || 'debug';
+        return levelMap[level] || levelMap['INFO'];
     }
     
-    async copyToClipboard(blockId) {
-        try {
-            const block = this.findBlockById(blockId);
-            if (block) {
-                if (navigator.clipboard) {
-                    await navigator.clipboard.writeText(block.formatted_content);
-                } else {
-                    // 降级方案
-                    const textArea = document.createElement('textarea');
-                    textArea.value = block.formatted_content;
-                    document.body.appendChild(textArea);
-                    textArea.select();
-                    document.execCommand('copy');
-                    document.body.removeChild(textArea);
-                }
-                this.showToast('已复制到剪贴板');
-            }
-        } catch (error) {
-            console.error('复制失败:', error);
-            this.showToast('复制失败', 'error');
-        }
-    }
-    
-    findBlockById(blockId) {
-        for (const entry of this.currentEntries) {
-            for (const block of entry.rendered_blocks) {
-                if (block.id === blockId) {
-                    return block;
-                }
-            }
-        }
-        return null;
-    }
-    
-    switchPlugin(pluginName) {
-        const oldPlugin = this.currentPlugin;
-        this.currentPlugin = pluginName;
+    searchLogs(term) {
+        this.searchTerm = term.toLowerCase();
         
-        this.info('PLUGIN', `切换到插件: ${pluginName}`, { 
-            from: oldPlugin, 
-            to: pluginName 
-        });
-        
-        // 如果有当前文件，重新解析
-        if (this.currentFile) {
-            this.handleFile(this.currentFile);
-        }
-    }
-    
-    filterLogs() {
-        const originalContainer = document.getElementById('originalLog');
-        const parsedContainer = document.getElementById('parsedLog');
-        
-        if (!this.searchTerm.trim()) {
-            // 显示所有日志
-            this.showAllLogs();
+        if (!term.trim()) {
+            // 显示所有结果
+            this.displayAllResults();
             return;
         }
         
-        const searchTerm = this.searchTerm.toLowerCase();
-        const originalLogs = originalContainer.querySelectorAll('.log-line');
-        const parsedLogs = parsedContainer.querySelectorAll('.mb-4');
-        
-        originalLogs.forEach(log => {
-            const content = log.textContent.toLowerCase();
-            if (content.includes(searchTerm)) {
-                log.style.display = 'block';
-                this.highlightSearchTerm(log, searchTerm);
-            } else {
-                log.style.display = 'none';
-            }
-        });
-        
-        parsedLogs.forEach(log => {
-            const content = log.textContent.toLowerCase();
-            if (content.includes(searchTerm)) {
-                log.style.display = 'block';
-                this.highlightSearchTerm(log, searchTerm);
-            } else {
-                log.style.display = 'none';
-            }
-        });
-    }
-    
-    showAllLogs() {
-        const originalLogs = document.querySelectorAll('#originalLog .log-line');
-        const parsedLogs = document.querySelectorAll('#parsedLog .mb-4');
-        
-        originalLogs.forEach(log => {
-            log.style.display = 'block';
-            this.removeSearchHighlight(log);
-        });
-        
-        parsedLogs.forEach(log => {
-            log.style.display = 'block';
-            this.removeSearchHighlight(log);
-        });
-    }
-    
-    highlightSearchTerm(element, searchTerm) {
-        this.removeSearchHighlight(element);
-        
-        const walker = document.createTreeWalker(
-            element,
-            NodeFilter.SHOW_TEXT,
-            null,
-            false
+        const filteredEntries = this.currentEntries.filter(entry => 
+            entry.content.toLowerCase().includes(this.searchTerm) ||
+            (entry.level && entry.level.toLowerCase().includes(this.searchTerm)) ||
+            (entry.timestamp && entry.timestamp.toLowerCase().includes(this.searchTerm))
         );
         
-        const textNodes = [];
-        let node;
-        while (node = walker.nextNode()) {
-            textNodes.push(node);
+        this.displayFilteredResults(filteredEntries);
+    }
+    
+    displayAllResults() {
+        const resultsContent = document.getElementById('resultsContent');
+        if (resultsContent && this.currentEntries) {
+            this.displayResults({ entries: this.currentEntries });
         }
-        
-        textNodes.forEach(textNode => {
-            const text = textNode.textContent;
-            const regex = new RegExp(`(${searchTerm})`, 'gi');
-            const highlightedText = text.replace(regex, '<span class="search-highlight">$1</span>');
-            
-            if (highlightedText !== text) {
-                const wrapper = document.createElement('div');
-                wrapper.innerHTML = highlightedText;
-                textNode.parentNode.replaceChild(wrapper, textNode);
-            }
-        });
     }
     
-    removeSearchHighlight(element) {
-        const highlights = element.querySelectorAll('.search-highlight');
-        highlights.forEach(highlight => {
-            const parent = highlight.parentNode;
-            parent.replaceChild(document.createTextNode(highlight.textContent), highlight);
-            parent.normalize();
-        });
-    }
-    
-    clearSearch() {
-        document.getElementById('searchInput').value = '';
-        this.searchTerm = '';
-        this.showAllLogs();
-    }
-    
-    showLoading(message) {
-        this.isLoading = true;
-        document.getElementById('loadingText').textContent = message;
-        document.getElementById('loadingOverlay').classList.remove('hidden');
-    }
-    
-    hideLoading() {
-        this.isLoading = false;
-        document.getElementById('loadingOverlay').classList.add('hidden');
-    }
-    
-    showError(message) {
-        this.updateStatus(`错误: ${message}`);
-        this.showToast(message, 'error');
-    }
-    
-    showToast(message, type = 'success') {
-        const toast = document.getElementById('toast');
-        const toastMessage = document.getElementById('toastMessage');
-        
-        toastMessage.textContent = message;
-        toast.className = `fixed top-4 right-4 px-4 py-2 rounded shadow-lg z-50 ${
-            type === 'error' ? 'bg-red-500' : 'bg-green-500'
-        } text-white`;
-        
-        toast.classList.remove('hidden');
-        
-        setTimeout(() => {
-            toast.classList.add('hidden');
-        }, 3000);
-    }
-    
-    updateStatus(message) {
-        document.getElementById('statusText').textContent = message;
-    }
-    
-    updateFileInfo(file) {
-        const fileInfo = document.getElementById('fileInfo');
-        const size = this.formatFileSize(file.size);
-        fileInfo.textContent = `${file.name} (${size})`;
-    }
-    
-    formatFileSize(bytes) {
-        const units = ['B', 'KB', 'MB', 'GB'];
-        let size = bytes;
-        let unitIndex = 0;
-        
-        while (size >= 1024 && unitIndex < units.length - 1) {
-            size /= 1024;
-            unitIndex++;
+    displayFilteredResults(entries) {
+        const resultsContent = document.getElementById('resultsContent');
+        if (resultsContent) {
+            resultsContent.innerHTML = entries.map(entry => `
+                <div class="p-4 border border-gray-200 dark:border-gray-700 rounded-lg mb-3 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors duration-200 ${this.getLogEntryClass(entry.level)}">
+                    <div class="flex items-center justify-between mb-2">
+                        <div class="flex items-center space-x-2">
+                            <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${this.getLogLevelClass(entry.level)}">
+                                ${entry.level || 'INFO'}
+                            </span>
+                            ${entry.timestamp ? `<span class="text-xs text-gray-500 dark:text-gray-400">${entry.timestamp}</span>` : ''}
+                        </div>
+                    </div>
+                    <div class="text-sm text-gray-700 dark:text-gray-300 font-mono whitespace-pre-wrap">${this.highlightSearchTerm(entry.content)}</div>
+                </div>
+            `).join('');
         }
-        
-        return `${size.toFixed(1)} ${units[unitIndex]}`;
     }
-
-    basename(path) {
-        if (!path) return '';
-        const sep = path.includes('\\') ? '\\' : '/';
-        const parts = path.split(sep);
-        return parts[parts.length - 1];
+    
+    highlightSearchTerm(text) {
+        if (!this.searchTerm) return text;
+        
+        const regex = new RegExp(`(${this.searchTerm})`, 'gi');
+        return text.replace(regex, '<mark class="bg-yellow-200 dark:bg-yellow-800">$1</mark>');
     }
     
     escapeHtml(text) {
@@ -1031,1364 +1996,86 @@ class LogWhisperApp {
         return div.innerHTML;
     }
     
-    // 主题管理方法
-    initTheme() {
-        // 从本地存储读取主题设置
-        const savedTheme = localStorage.getItem('logwhisper-theme');
-        if (savedTheme) {
-            this.currentTheme = savedTheme;
-        } else {
-            // 检测系统主题偏好
-            const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-            this.currentTheme = prefersDark ? 'dark' : 'light';
+    clearContent() {
+        const fileInput = document.getElementById('fileInput');
+        const welcomeScreen = document.getElementById('welcomeScreen');
+        const resultsContainer = document.getElementById('resultsContainer');
+        
+        if (fileInput) fileInput.value = '';
+        
+        if (welcomeScreen) welcomeScreen.classList.remove('hidden');
+        if (resultsContainer) resultsContainer.classList.add('hidden');
+        
+        this.currentFile = null;
+        this.currentEntries = [];
+        
+        console.log('🗑️ 内容已清空');
+    }
+    
+    exportResults() {
+        if (this.currentEntries.length === 0) {
+            alert('没有可导出的结果');
+            return;
         }
         
-        this.applyTheme();
-    }
-    
-    toggleTheme() {
-        const oldTheme = this.currentTheme;
-        this.currentTheme = this.currentTheme === 'light' ? 'dark' : 'light';
-        this.applyTheme();
+        const data = this.currentEntries.map(entry => ({
+            timestamp: entry.timestamp,
+            level: entry.level,
+            content: entry.content
+        }));
         
-        // 保存到本地存储
-        localStorage.setItem('logwhisper-theme', this.currentTheme);
-        
-        // 显示切换提示
-        this.showToast(`已切换到${this.currentTheme === 'light' ? '亮色' : '暗色'}主题`);
-        
-        this.info('UI_OPERATION', '主题切换', { 
-            from: oldTheme, 
-            to: this.currentTheme 
-        });
-    }
-    
-    applyTheme() {
-        const body = document.body;
-        const themeIcon = document.getElementById('themeIcon');
-        
-        if (this.currentTheme === 'dark') {
-            body.setAttribute('data-theme', 'dark');
-            themeIcon.textContent = '☀️';
-        } else {
-            body.setAttribute('data-theme', 'light');
-            themeIcon.textContent = '🌙';
-        }
-    }
-    
-    // 调试面板管理
-    toggleDebugPanel() {
-        const debugPanel = document.getElementById('debugPanel');
-        this.debugMode = !this.debugMode;
-        
-        if (this.debugMode) {
-            debugPanel.classList.remove('hidden');
-            this.info('UI_OPERATION', '调试面板已打开');
-            this.updateDebugStats();
-        } else {
-            debugPanel.classList.add('hidden');
-            this.info('UI_OPERATION', '调试面板已关闭');
-        }
-    }
-    
-    logDebug(message, type = 'info') {
-        if (!this.debugMode) return;
-        
-        const debugLogs = document.getElementById('debugLogs');
-        const timestamp = new Date().toLocaleTimeString();
-        const logEntry = document.createElement('div');
-        
-        const colors = {
-            info: 'text-blue-400',
-            warn: 'text-yellow-400', 
-            error: 'text-red-400',
-            success: 'text-green-400'
-        };
-        
-        logEntry.className = `${colors[type]} mb-1`;
-        logEntry.innerHTML = `[${timestamp}] ${message}`;
-        
-        debugLogs.appendChild(logEntry);
-        debugLogs.scrollTop = debugLogs.scrollHeight;
-        
-        // 限制日志条数
-        const logs = debugLogs.children;
-        if (logs.length > 100) {
-            debugLogs.removeChild(logs[0]);
-        }
-    }
-    
-    updateDebugStats() {
-        if (!this.debugMode) return;
-        
-        document.getElementById('parseCount').textContent = this.debugStats.parseCount;
-        document.getElementById('avgParseTime').textContent = 
-            this.debugStats.parseCount > 0 ? 
-            Math.round(this.debugStats.totalParseTime / this.debugStats.parseCount) + 'ms' : 
-            '0ms';
-        
-        // 模拟内存使用
-        if (performance.memory) {
-            const memoryMB = Math.round(performance.memory.usedJSHeapSize / 1024 / 1024);
-            document.getElementById('memoryUsage').textContent = memoryMB + 'MB';
-        }
-        
-        // 计算缓存命中率
-        const totalCache = this.debugStats.cacheHits + this.debugStats.cacheMisses;
-        const hitRate = totalCache > 0 ? 
-            Math.round((this.debugStats.cacheHits / totalCache) * 100) : 0;
-        document.getElementById('cacheHitRate').textContent = hitRate + '%';
-    }
-    
-    clearDebugLogs() {
-        const debugLogs = document.getElementById('debugLogs');
-        debugLogs.innerHTML = '<div class="text-gray-500">日志已清空</div>';
-        this.logDebug('🧹 调试日志已清空');
-    }
-    
-    exportDebugLogs() {
-        const debugLogs = document.getElementById('debugLogs');
-        const logs = Array.from(debugLogs.children).map(log => log.textContent).join('\n');
-        
-        const blob = new Blob([logs], { type: 'text/plain' });
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
+        
         const a = document.createElement('a');
         a.href = url;
-        a.download = `logwhisper-debug-${new Date().toISOString().slice(0, 19)}.log`;
+        a.download = `logwhisper-export-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.json`;
+        document.body.appendChild(a);
         a.click();
+        document.body.removeChild(a);
         URL.revokeObjectURL(url);
         
-        this.logDebug('📁 调试日志已导出');
+        console.log('📤 结果已导出');
     }
     
-    async runPerformanceTest() {
-        this.logDebug('🚀 开始性能测试...', 'info');
-        
-        const testData = this.generateRealisticLogData();
-        const iterations = 10;
-        const startTime = performance.now();
-        
-        for (let i = 0; i < iterations; i++) {
-            // 模拟解析过程
-            await new Promise(resolve => setTimeout(resolve, 10));
-            this.debugStats.parseCount++;
-        }
-        
-        const endTime = performance.now();
-        const totalTime = endTime - startTime;
-        const avgTime = totalTime / iterations;
-        
-        this.logDebug(`✅ 性能测试完成: ${iterations}次迭代, 总耗时${Math.round(totalTime)}ms, 平均${Math.round(avgTime)}ms/次`, 'success');
-        
-        this.updateDebugStats();
-    }
-    
-    // 性能面板管理
-    togglePerformancePanel() {
-        const performancePanel = document.getElementById('performancePanel');
-        this.performanceMode = !this.performanceMode;
-        
-        if (this.performanceMode) {
-            performancePanel.classList.remove('hidden');
-            this.logDebug('⚡ 性能面板已打开');
-            this.updatePerformanceStats();
-        } else {
-            performancePanel.classList.add('hidden');
-            this.logDebug('⚡ 性能面板已关闭');
+    showLoading() {
+        const overlay = document.getElementById('loadingOverlay');
+        if (overlay) {
+            overlay.classList.remove('hidden');
         }
     }
     
-    updatePerformanceStats() {
-        if (!this.performanceMode) return;
-        
-        // 更新虚拟滚动统计
-        document.getElementById('visibleItems').textContent = this.virtualScroll.endIndex - this.virtualScroll.startIndex;
-        document.getElementById('totalItems').textContent = this.currentEntries.length;
-        
-        // 更新分块加载统计
-        document.getElementById('loadedChunks').textContent = this.chunkLoading.loadedChunks.size;
-        document.getElementById('totalChunks').textContent = this.chunkLoading.totalChunks;
-        
-        // 更新内存使用
-        if (performance.memory) {
-            const memoryMB = Math.round(performance.memory.usedJSHeapSize / 1024 / 1024);
-            document.getElementById('memoryUsage').textContent = memoryMB + 'MB';
-        }
-        
-        // 更新性能指标
-        document.getElementById('parseCount').textContent = this.debugStats.parseCount;
-        document.getElementById('avgParseTime').textContent = 
-            this.debugStats.parseCount > 0 ? 
-            Math.round(this.debugStats.totalParseTime / this.debugStats.parseCount) + 'ms' : 
-            '0ms';
-        
-        const totalCache = this.debugStats.cacheHits + this.debugStats.cacheMisses;
-        const hitRate = totalCache > 0 ? 
-            Math.round((this.debugStats.cacheHits / totalCache) * 100) : 0;
-        document.getElementById('cacheHitRate').textContent = hitRate + '%';
-    }
-    
-    cleanupMemory() {
-        this.logDebug('🧹 开始内存清理...');
-        
-        // 清理不可见数据
-        this.cleanupInvisibleData();
-        
-        // 强制垃圾回收（如果可用）
-        if (window.gc) {
-            window.gc();
-        }
-        
-        // 清理事件监听器
-        this.cleanupEventListeners();
-        
-        this.logDebug('✅ 内存清理完成');
-        this.updatePerformanceStats();
-        this.showToast('内存清理完成');
-    }
-    
-    cleanupEventListeners() {
-        // 清理可能的内存泄漏
-        const containers = document.querySelectorAll('.virtual-scroll-container');
-        containers.forEach(container => {
-            // 移除旧的事件监听器
-            const newContainer = container.cloneNode(true);
-            container.parentNode.replaceChild(newContainer, container);
-        });
-    }
-    
-    // 虚拟滚动实现
-    renderVirtualScroll() {
-        this.debug('VIRTUAL_SCROLL', '启用虚拟滚动渲染');
-        
-        // 计算总高度
-        const totalHeight = this.currentEntries.length * this.virtualScroll.itemHeight;
-        
-        // 设置容器高度
-        const originalContainer = document.getElementById('originalLog');
-        const parsedContainer = document.getElementById('parsedLog');
-        
-        this.setupVirtualScrollContainer(originalContainer, totalHeight, 'original');
-        this.setupVirtualScrollContainer(parsedContainer, totalHeight, 'parsed');
-        
-        // 初始渲染
-        this.updateVirtualScroll();
-        
-        // 绑定滚动事件
-        this.bindScrollEvents();
-    }
-    
-    setupVirtualScrollContainer(container, totalHeight, type) {
-        this.debug('VIRTUAL_SCROLL', `初始化虚拟滚动容器: ${type}, 总高度: ${totalHeight}px`);
-        
-        // 检查容器尺寸
-        const containerRect = container.getBoundingClientRect();
-        const actualHeight = Math.max(containerRect.height, 400); // 使用实际高度或最小高度
-        this.debug('VIRTUAL_SCROLL', `容器 ${type} 实际尺寸: ${containerRect.width}x${containerRect.height}, 使用高度: ${actualHeight}`);
-        
-        // 创建虚拟滚动容器
-        const virtualContainer = document.createElement('div');
-        virtualContainer.className = 'virtual-scroll-container';
-        virtualContainer.style.cssText = `
-            height: ${actualHeight}px;
-            overflow-y: auto;
-            position: relative;
-            background-color: var(--bg-content);
-            border: 1px solid var(--border-primary);
-            display: block;
-        `;
-        
-        // 创建占位容器
-        const placeholder = document.createElement('div');
-        placeholder.className = 'virtual-scroll-placeholder';
-        placeholder.style.cssText = `
-            height: ${totalHeight}px;
-            position: relative;
-            background-color: transparent;
-            width: 100%;
-            display: block;
-        `;
-        
-        // 创建可见内容容器
-        const visibleContainer = document.createElement('div');
-        visibleContainer.className = 'virtual-scroll-visible';
-        visibleContainer.style.cssText = `
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            width: 100%;
-            background-color: transparent;
-            display: block;
-            z-index: 1;
-        `;
-        
-        placeholder.appendChild(visibleContainer);
-        virtualContainer.appendChild(placeholder);
-        
-        // 清空原容器并添加虚拟滚动容器
-        container.innerHTML = '';
-        container.appendChild(virtualContainer);
-        
-        // 存储引用
-        container._virtualContainer = virtualContainer;
-        container._placeholder = placeholder;
-        container._visibleContainer = visibleContainer;
-        container._type = type;
-        container._actualHeight = actualHeight; // 存储实际高度
-        
-        // 更新虚拟滚动参数
-        if (type === 'original') {
-            // 只在第一个容器初始化时更新
-            this.virtualScroll.containerHeight = actualHeight;
-        }
-        
-        // 检查创建结果
-        this.debug('VIRTUAL_SCROLL', `虚拟容器创建完成: ${type}`);
-        this.debug('VIRTUAL_SCROLL', `虚拟容器尺寸: ${virtualContainer.offsetWidth}x${virtualContainer.offsetHeight}`);
-        this.debug('VIRTUAL_SCROLL', `占位器高度: ${placeholder.offsetHeight}px`);
-    }
-    
-    bindScrollEvents() {
-        const originalContainer = document.getElementById('originalLog');
-        const parsedContainer = document.getElementById('parsedLog');
-        
-        // 防抖处理滚动事件
-        let scrollTimeout;
-        let isScrolling = false;
-        let lastScrollTop = 0;
-        
-        const handleScroll = (e) => {
-            const currentScrollTop = e.target.scrollTop;
-            
-            // 防止重复处理相同的滚动位置
-            if (Math.abs(currentScrollTop - lastScrollTop) < 1) {
-                return;
-            }
-            
-            this.virtualScroll.scrollTop = currentScrollTop;
-            lastScrollTop = currentScrollTop;
-            isScrolling = true;
-            
-            // 清除之前的定时器
-            if (scrollTimeout) {
-                clearTimeout(scrollTimeout);
-            }
-            
-            // 立即更新虚拟滚动
-            this.updateVirtualScroll();
-            
-            // 设置防抖，避免频繁更新
-            scrollTimeout = setTimeout(() => {
-                isScrolling = false;
-                this.updateVirtualScroll();
-            }, 16); // 约60fps
-        };
-        
-        // 添加滚动开始和结束事件
-        const handleScrollStart = () => {
-            this.logDebug('🔄 滚动开始');
-            isScrolling = true;
-        };
-        
-        const handleScrollEnd = () => {
-            this.logDebug('🔄 滚动结束');
-            isScrolling = false;
-            this.updateVirtualScroll();
-        };
-        
-        // 使用passive事件监听器提高性能
-        originalContainer._virtualContainer.addEventListener('scroll', handleScroll, { passive: true });
-        parsedContainer._virtualContainer.addEventListener('scroll', handleScroll, { passive: true });
-        
-        // 添加滚动开始和结束事件
-        originalContainer._virtualContainer.addEventListener('scrollstart', handleScrollStart);
-        originalContainer._virtualContainer.addEventListener('scrollend', handleScrollEnd);
-        parsedContainer._virtualContainer.addEventListener('scrollstart', handleScrollStart);
-        parsedContainer._virtualContainer.addEventListener('scrollend', handleScrollEnd);
-        
-        // 同步滚动 - 防止循环触发
-        let isSyncing = false;
-        originalContainer._virtualContainer.addEventListener('scroll', (e) => {
-            if (isSyncing) return;
-            isSyncing = true;
-            if (parsedContainer._virtualContainer.scrollTop !== e.target.scrollTop) {
-                parsedContainer._virtualContainer.scrollTop = e.target.scrollTop;
-            }
-            setTimeout(() => { isSyncing = false; }, 10);
-        });
-        
-        parsedContainer._virtualContainer.addEventListener('scroll', (e) => {
-            if (isSyncing) return;
-            isSyncing = true;
-            if (originalContainer._virtualContainer.scrollTop !== e.target.scrollTop) {
-                originalContainer._virtualContainer.scrollTop = e.target.scrollTop;
-            }
-            setTimeout(() => { isSyncing = false; }, 10);
-        });
-    }
-    
-    updateVirtualScroll() {
-        const scrollTop = this.virtualScroll.scrollTop;
-        const containerHeight = this.virtualScroll.containerHeight || 400; // 使用实际容器高度
-        
-        // 计算可见范围，使用更精确的计算
-        const itemHeight = this.virtualScroll.itemHeight;
-        const startIndex = Math.floor(scrollTop / itemHeight);
-        const visibleItemCount = Math.ceil(containerHeight / itemHeight);
-        const endIndex = Math.min(
-            startIndex + visibleItemCount + this.virtualScroll.bufferSize * 2, // 双向缓冲
-            this.currentEntries.length
-        );
-        
-        const newStartIndex = Math.max(0, startIndex - this.virtualScroll.bufferSize);
-        const newEndIndex = endIndex;
-        
-        // 检查是否需要更新渲染范围
-        if (newStartIndex !== this.virtualScroll.startIndex || newEndIndex !== this.virtualScroll.endIndex) {
-            this.virtualScroll.startIndex = newStartIndex;
-            this.virtualScroll.endIndex = newEndIndex;
-            
-            this.debug('VIRTUAL_SCROLL', `虚拟滚动更新: 显示 ${this.virtualScroll.startIndex}-${this.virtualScroll.endIndex} / ${this.currentEntries.length}`);
-            this.debug('VIRTUAL_SCROLL', `滚动位置: ${scrollTop}px, 容器高度: ${containerHeight}px, 项目高度: ${itemHeight}px, 可见项目数: ${visibleItemCount}`);
-            
-            // 使用requestAnimationFrame确保DOM更新在下一帧进行
-            requestAnimationFrame(() => {
-                // 检查并加载需要的数据块
-                this.loadRequiredChunks();
-                
-                // 管理滚动数据
-                this.manageScrollData();
-                
-                // 渲染可见项目
-                this.renderVisibleItems();
-                
-                // 确保滚动同步
-                this.ensureScrollSync();
-            });
-        }
-    }
-    
-    // ==================== 日志系统 ====================
-    
-    // 应用日志记录
-    appLog(level, module, message, data) {
-        if (data === undefined) data = null;
-        var timestamp = new Date().toISOString();
-        var logEntry = {
-            timestamp: timestamp,
-            level: level,
-            module: module,
-            message: message,
-            data: data,
-            id: Math.random().toString(36).substr(2, 9)
-        };
-        
-        // 检查日志级别
-        var logLevels = { DEBUG: 0, INFO: 1, WARN: 2, ERROR: 3 };
-        if (logLevels[level] < logLevels[this.logger.level]) {
-            return;
-        }
-        
-        // 添加到内存日志
-        this.logger.logs.push(logEntry);
-        
-        // 限制内存中的日志数量
-        if (this.logger.logs.length > this.logger.maxMemoryLogs) {
-            this.logger.logs.shift();
-        }
-        
-        // 格式化日志消息
-        var time = timestamp.split('T')[1].split('.')[0];
-        var formattedMessage = '[' + time + '] [' + level + '] [' + module + '] ' + message;
-        
-        // 控制台输出
-        if (this.logger.console) {
-            var styles = {
-                DEBUG: 'color: #6B7280; background: #F3F4F6;',
-                INFO: 'color: #3B82F6; background: #EFF6FF;',
-                WARN: 'color: #F59E0B; background: #FFFBEB;',
-                ERROR: 'color: #EF4444; background: #FEF2F2;'
-            };
-            console.log('%c' + formattedMessage, styles[level] || styles.DEBUG);
-            if (data) {
-                console.log('数据:', data);
-            }
-        }
-        
-        // 文件输出
-        if (this.logger.file) {
-            this.fileLog(logEntry);
-        }
-        
-        // 更新调试面板
-        this.updateDebugLogs(logEntry);
-    }
-    
-    // 文件日志 - 直接写入，无缓冲区
-    fileLog(logEntry) {
-        var self = this;
-        try {
-            // 格式化单条日志
-            var logText = logEntry.timestamp + ' [' + logEntry.level + '] [' + logEntry.module + '] ' + logEntry.message + 
-                         (logEntry.data ? '\n数据: ' + JSON.stringify(logEntry.data, null, 2) : '') + '\n';
-            
-            // 检查是否在 Tauri 环境中
-            if (window.__TAURI__ && window.__TAURI__.invoke) {
-                // 调用Tauri命令直接写入文件
-                window.__TAURI__.invoke('write_log', { 
-                    content: logText,
-                    append: true 
-                }).then(function(response) {
-                    // 成功写入，静默处理
-                    // console.log('日志已写入文件'); // 移除这行避免过多输出
-                }).catch(function(error) {
-                    console.error('文件日志写入失败:', error);
-                    // 备用方案：输出到控制台
-                    console.log('备用日志输出:', logText);
-                });
-            } else {
-                // 浏览器环境或开发环境 - 模拟文件写入
-                // console.log('开发环境日志:', logText.trim()); // 移除频繁的控制台输出
-                
-                // 使用更智能的缓冲区管理
-                if (this.logger.fileBuffer === undefined) {
-                    this.logger.fileBuffer = [];
-                    this.logger.lastFlushTime = Date.now();
-                }
-                
-                this.logger.fileBuffer.push(logText);
-                
-                // 改进缓冲区刷新策略：基于时间和数量双重条件
-                const now = Date.now();
-                const timeSinceLastFlush = now - (this.logger.lastFlushTime || 0);
-                const bufferFull = this.logger.fileBuffer.length >= 500; // 增加缓冲区大小
-                const timeExpired = timeSinceLastFlush > 30000; // 30秒自动刷新一次
-                
-                // 只有在缓冲区满了或者长时间未刷新时才触发
-                if (bufferFull || timeExpired) {
-                    this.flushLogBuffer();
-                    this.logger.lastFlushTime = now;
-                }
-            }
-        } catch (error) {
-            console.error('文件日志写入失败:', error);
-            // 备用方案：输出到控制台
-            console.log('备用日志输出:', logText);
-        }
-    }
-    
-    // 刷新日志缓冲区（浏览器环境）
-    flushLogBuffer() {
-        if (!this.logger.fileBuffer || this.logger.fileBuffer.length === 0) {
-            return;
-        }
-        
-        // 防止重复刷新（防抖）
-        if (this.logger.isFlushingBuffer) {
-            return;
-        }
-        
-        this.logger.isFlushingBuffer = true;
-        
-        try {
-            const logContent = this.logger.fileBuffer.join('');
-            const blob = new Blob([logContent], { type: 'text/plain' });
-            const url = URL.createObjectURL(blob);
-            
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `logwhisper-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.log`;
-            a.style.display = 'none';
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            
-            URL.revokeObjectURL(url);
-            
-            // 清空缓冲区
-            this.logger.fileBuffer = [];
-            
-            console.log('日志缓冲区已刷新到文件');
-        } catch (error) {
-            console.error('刷新日志缓冲区失败:', error);
-        } finally {
-            // 延迟重置状态，防止频繁触发
-            setTimeout(() => {
-                this.logger.isFlushingBuffer = false;
-            }, 2000); // 2秒防抖
-        }
-    }
-    
-    // 更新调试面板日志
-    updateDebugLogs(logEntry) {
-        var debugLogs = document.getElementById('debugLogs');
-        if (!debugLogs) return;
-        
-        var logElement = document.createElement('div');
-        logElement.className = 'debug-log-item ' + logEntry.level.toLowerCase();
-        logElement.innerHTML = 
-            '<span class="log-time">' + logEntry.timestamp.split('T')[1].split('.')[0] + '</span>' +
-            '<span class="log-level">[' + logEntry.level + ']</span>' +
-            '<span class="log-module">[' + logEntry.module + ']</span>' +
-            '<span class="log-message">' + logEntry.message + '</span>';
-        
-        debugLogs.appendChild(logElement);
-        
-        var maxDebugLogs = 100;
-        while (debugLogs.children.length > maxDebugLogs) {
-            debugLogs.removeChild(debugLogs.firstChild);
-        }
-        
-        debugLogs.scrollTop = debugLogs.scrollHeight;
-    }
-    
-    // 便捷的日志方法
-    debug(module, message, data) {
-        if (data === undefined) data = null;
-        this.appLog('DEBUG', module, message, data);
-    }
-    
-    info(module, message, data) {
-        if (data === undefined) data = null;
-        this.appLog('INFO', module, message, data);
-    }
-    
-    warn(module, message, data) {
-        if (data === undefined) data = null;
-        this.appLog('WARN', module, message, data);
-    }
-    
-    error(module, message, data) {
-        if (data === undefined) data = null;
-        this.appLog('ERROR', module, message, data);
-    }
-    
-    // 导出日志
-    exportLogs() {
-        var logs = this.logger.logs;
-        var logText = logs.map(function(log) {
-            return log.timestamp + ' [' + log.level + '] [' + log.module + '] ' + log.message + 
-                   (log.data ? '\n数据: ' + JSON.stringify(log.data, null, 2) : '');
-        }).join('\n');
-        
-        var blob = new Blob([logText], { type: 'text/plain' });
-        var url = URL.createObjectURL(blob);
-        var a = document.createElement('a');
-        a.href = url;
-        a.download = 'logwhisper_logs_' + new Date().toISOString().split('T')[0] + '.txt';
-        a.click();
-        URL.revokeObjectURL(url);
-        
-        this.info('LOGGER', '日志已导出');
-    }
-    
-    // 手动刷新日志缓冲区
-    manualFlushLogs() {
-        if (window.__TAURI__ && window.__TAURI__.invoke) {
-            // Tauri环境下，日志已经实时写入文件
-            this.showToast('日志已实时写入到 logs/ 目录');
-            this.info('LOGGER', '日志实时写入已启用，检查 logs/ 目录');
-        } else {
-            // 浏览器环境下，检查是否有日志需要刷新
-            if (!this.logger.fileBuffer || this.logger.fileBuffer.length === 0) {
-                this.showToast('暂无日志内容需要刷新');
-                return;
-            }
-            
-            // 浏览器环境下，手动触发缓冲区刷新
-            this.flushLogBuffer();
-            this.showToast(`日志缓冲区已刷新，导出 ${this.logger.fileBuffer.length} 条日志`);
-            this.info('LOGGER', '日志缓冲区已手动刷新');
-        }
-    }
-    
-    // 清空日志
-    clearLogs() {
-        // 清空内存中的日志
-        this.logger.logs = [];
-        
-        // 清空调试面板
-        var debugLogs = document.getElementById('debugLogs');
-        if (debugLogs) {
-            debugLogs.innerHTML = '';
-        }
-        
-        this.info('LOGGER', '日志已清空');
-    }
-    
-    // 设置日志级别
-    setLogLevel(level) {
-        this.logger.level = level;
-        this.info('LOGGER', '日志级别设置为: ' + level);
-    }
-    
-    // 测试日志系统
-    testLogging() {
-        console.log('开始测试日志系统...');
-        this.info('TEST', '开始测试日志系统...');
-        this.debug('TEST', '调试日志测试');
-        this.warn('TEST', '警告日志测试');
-        this.error('TEST', '错误日志测试');
-        this.info('TEST', '日志系统测试完成');
-        console.log('日志系统测试完成');
-    }
-    
-    loadRequiredChunks() {
-        if (!this.chunkLoading.enabled || this.chunkLoading.totalChunks === 0) return;
-        
-        // 计算当前可见范围需要的数据块
-        const startChunk = Math.floor(this.virtualScroll.startIndex / this.chunkLoading.chunkSize);
-        const endChunk = Math.floor(this.virtualScroll.endIndex / this.chunkLoading.chunkSize);
-        
-        // 扩展范围以预加载相邻块
-        const preloadRange = 2; // 预加载前后2个块
-        const extendedStartChunk = Math.max(0, startChunk - preloadRange);
-        const extendedEndChunk = Math.min(this.chunkLoading.totalChunks - 1, endChunk + preloadRange);
-        
-        // 检查哪些块需要加载
-        const chunksToLoad = [];
-        for (let chunkIndex = extendedStartChunk; chunkIndex <= extendedEndChunk; chunkIndex++) {
-            if (!this.chunkLoading.loadedChunks.has(chunkIndex)) {
-                chunksToLoad.push(chunkIndex);
-            }
-        }
-        
-        if (chunksToLoad.length > 0) {
-            this.debug('CHUNK_LOADING', `需要加载数据块: ${chunksToLoad.join(', ')} (扩展范围: ${extendedStartChunk}-${extendedEndChunk})`);
-            this.loadChunksAsync(chunksToLoad);
-        }
-    }
-    
-    // 优先级加载：优先加载可见区域的数据
-    loadChunksWithPriority(chunksToLoad) {
-        // 按优先级排序：可见区域 > 预加载区域
-        const visibleStartChunk = Math.floor(this.virtualScroll.startIndex / this.chunkLoading.chunkSize);
-        const visibleEndChunk = Math.floor(this.virtualScroll.endIndex / this.chunkLoading.chunkSize);
-        
-        const priorityChunks = [];
-        const normalChunks = [];
-        
-        chunksToLoad.forEach(chunkIndex => {
-            if (chunkIndex >= visibleStartChunk && chunkIndex <= visibleEndChunk) {
-                priorityChunks.push(chunkIndex);
-            } else {
-                normalChunks.push(chunkIndex);
-            }
-        });
-        
-        // 先加载优先级高的块
-        if (priorityChunks.length > 0) {
-            this.logDebug(`🚀 优先加载可见区域数据块: ${priorityChunks.join(', ')}`);
-            this.loadChunksAsync(priorityChunks);
-        }
-        
-        // 然后加载普通块
-        if (normalChunks.length > 0) {
-            this.logDebug(`📦 预加载数据块: ${normalChunks.join(', ')}`);
-            setTimeout(() => {
-                this.loadChunksAsync(normalChunks);
-            }, 100);
-        }
-    }
-    
-    async loadChunksAsync(chunkIndexes) {
-        for (const chunkIndex of chunkIndexes) {
-            if (!this.chunkLoading.loadedChunks.has(chunkIndex)) {
-                await this.loadChunk(chunkIndex);
-                
-                // 如果当前可见区域包含这个块，立即重新渲染
-                const chunkStart = chunkIndex * this.chunkLoading.chunkSize;
-                const chunkEnd = Math.min(chunkStart + this.chunkLoading.chunkSize, this.currentEntries.length);
-                
-                if (chunkStart < this.virtualScroll.endIndex && chunkEnd > this.virtualScroll.startIndex) {
-                    this.logDebug(`🔄 数据块 ${chunkIndex} 加载完成，重新渲染可见区域`);
-                    this.renderVisibleItems();
-                }
-            }
-        }
-    }
-    
-    renderVisibleItems() {
-        const originalContainer = document.getElementById('originalLog');
-        const parsedContainer = document.getElementById('parsedLog');
-        
-        // 检查容器是否存在
-        if (!originalContainer || !parsedContainer) {
-            this.error('VIRTUAL_SCROLL', '无法找到日志容器');
-            return;
-        }
-        
-        // 检查虚拟滚动容器是否正确初始化
-        if (!originalContainer._visibleContainer || !parsedContainer._visibleContainer) {
-            this.error('VIRTUAL_SCROLL', '虚拟滚动容器未正确初始化，重新初始化...');
-            this.renderVirtualScroll();
-            return;
-        }
-        
-        // 添加详细的DOM调试信息
-        this.debug('VIRTUAL_SCROLL', `容器状态检查:`);        
-        this.debug('VIRTUAL_SCROLL', `原始容器尺寸: ${originalContainer.offsetWidth}x${originalContainer.offsetHeight}`);
-        this.debug('VIRTUAL_SCROLL', `虚拟容器尺寸: ${originalContainer._virtualContainer.offsetWidth}x${originalContainer._virtualContainer.offsetHeight}`);
-        this.debug('VIRTUAL_SCROLL', `可见容器元素数: ${originalContainer._visibleContainer.children.length}`);
-        this.debug('VIRTUAL_SCROLL', `渲染范围: ${this.virtualScroll.startIndex}-${this.virtualScroll.endIndex} / ${this.currentEntries.length}`);
-        
-        // 清空可见容器 - 使用更安全的方式
-        while (originalContainer._visibleContainer.firstChild) {
-            originalContainer._visibleContainer.removeChild(originalContainer._visibleContainer.firstChild);
-        }
-        while (parsedContainer._visibleContainer.firstChild) {
-            parsedContainer._visibleContainer.removeChild(parsedContainer._visibleContainer.firstChild);
-        }
-        
-        // 渲染可见范围内的项目
-        let renderedCount = 0;
-        for (let i = this.virtualScroll.startIndex; i < this.virtualScroll.endIndex; i++) {
-            if (i >= this.currentEntries.length) break;
-            
-            const entry = this.currentEntries[i];
-            
-            // 检查数据是否已加载
-            if (!entry || entry === undefined) {
-                // 显示加载占位符
-                this.renderLoadingPlaceholder(originalContainer._visibleContainer, i, 'original');
-                this.renderLoadingPlaceholder(parsedContainer._visibleContainer, i, 'parsed');
-                renderedCount++;
-                continue;
-            }
-            
-            // 渲染原始日志
-            this.renderVirtualLogItem(originalContainer._visibleContainer, entry, i, 'original');
-            
-            // 渲染解析结果
-            this.renderVirtualLogItem(parsedContainer._visibleContainer, entry, i, 'parsed');
-            renderedCount++;
-        }
-        
-        // 更新可见容器的位置
-        const offsetY = this.virtualScroll.startIndex * this.virtualScroll.itemHeight;
-        originalContainer._visibleContainer.style.transform = `translateY(${offsetY}px)`;
-        parsedContainer._visibleContainer.style.transform = `translateY(${offsetY}px)`;
-        
-        // 检查渲染后的DOM状态
-        // this.debug('VIRTUAL_SCROLL', `渲染后状态:`); // 减少调试日志
-        // this.debug('VIRTUAL_SCROLL', `原始容器子元素数: ${originalContainer._visibleContainer.children.length}`);
-        // this.debug('VIRTUAL_SCROLL', `解析容器子元素数: ${parsedContainer._visibleContainer.children.length}`);
-        // this.debug('VIRTUAL_SCROLL', `实际渲染项目数: ${renderedCount}`);
-        // this.debug('VIRTUAL_SCROLL', `容器偏移量: ${offsetY}px`);
-        
-        // 只在重要情况下记录日志
-        if (renderedCount === 0 && this.currentEntries.length > 0) {
-            this.error('VIRTUAL_SCROLL', '渲染项目数为0，可能存在问题');
-        }
-        
-        // 强制重绘以确保内容可见
-        originalContainer._visibleContainer.style.display = 'none';
-        parsedContainer._visibleContainer.style.display = 'none';
-        
-        // 使用 requestAnimationFrame 确保重绘完成
-        requestAnimationFrame(() => {
-            originalContainer._visibleContainer.style.display = 'block';
-            parsedContainer._visibleContainer.style.display = 'block';
-            this.debug('VIRTUAL_SCROLL', `强制重绘完成`);
-        });
-        
-        this.debug('VIRTUAL_SCROLL', `渲染完成: 显示 ${renderedCount} 个项目`);
-    }
-    
-    renderLoadingPlaceholder(container, index, type) {
-        const item = document.createElement('div');
-        item.className = 'virtual-log-item loading-placeholder';
-        item.style.cssText = `
-            height: ${this.virtualScroll.itemHeight}px;
-            padding: 8px;
-            border-bottom: 1px solid var(--border-primary);
-            display: flex;
-            align-items: flex-start;
-            background: linear-gradient(90deg, var(--bg-tertiary) 25%, var(--bg-secondary) 50%, var(--bg-tertiary) 75%);
-            background-size: 200% 100%;
-            animation: loading 1.5s infinite;
-            width: 100%;
-            box-sizing: border-box;
-            min-height: ${this.virtualScroll.itemHeight}px;
-            color: var(--text-primary);
-            overflow: hidden;
-        `;
-        
-        item.innerHTML = `
-            <div class="line-number-column" style="
-                color: var(--text-tertiary); 
-                min-width: 80px; 
-                flex-shrink: 0; 
-                text-align: right; 
-                padding-right: 12px;
-                font-size: 12px;
-                line-height: 1.4;
-                font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
-            ">${index + 1}</div>
-            <div class="loading-content-column" style="flex: 1;">
-                <div class="h-4 rounded animate-pulse" style="background-color: var(--text-tertiary); margin-bottom: 4px;"></div>
-                <div class="h-3 rounded animate-pulse" style="background-color: var(--text-muted); width: 80%;"></div>
-            </div>
-        `;
-        
-        container.appendChild(item);
-        
-        // this.debug('VIRTUAL_SCROLL', `添加加载占位符: ${type} ${index + 1}`); // 减少调试日志
-    }
-    
-    renderVirtualLogItem(container, entry, index, type) {
-        const item = document.createElement('div');
-        item.className = 'virtual-log-item';
-        item.style.cssText = `
-            height: ${this.virtualScroll.itemHeight}px;
-            padding: 8px;
-            border-bottom: 1px solid var(--border-primary);
-            display: flex;
-            align-items: flex-start;
-            background-color: var(--bg-content);
-            color: var(--text-primary);
-            width: 100%;
-            box-sizing: border-box;
-            min-height: ${this.virtualScroll.itemHeight}px;
-            position: relative;
-            overflow: hidden;
-        `;
-        
-        if (type === 'original') {
-            // 检查原始数据是否存在
-            const content = entry.original && entry.original.content ? entry.original.content : '无数据';
-            item.innerHTML = `
-                <div class="line-number-column" style="
-                    color: var(--text-tertiary); 
-                    min-width: 80px; 
-                    flex-shrink: 0; 
-                    text-align: right; 
-                    padding-right: 12px;
-                    font-size: 12px;
-                    line-height: 1.4;
-                    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
-                ">${index + 1}</div>
-                <div class="log-content-column" style="
-                    color: var(--text-primary); 
-                    word-break: break-all; 
-                    overflow-wrap: anywhere;
-                    flex: 1;
-                    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
-                    font-size: 13px;
-                    line-height: 1.4;
-                    white-space: pre-wrap;
-                ">${this.escapeHtml(content)}</div>
-            `;
-        } else {
-            // 检查解析结果是否存在
-            if (entry.rendered_blocks && entry.rendered_blocks.length > 0) {
-                const block = entry.rendered_blocks[0];
-                const title = block.title || '解析结果';
-                const content = block.content || '无内容';
-                item.innerHTML = `
-                    <div class="line-number-column" style="
-                        color: var(--text-tertiary); 
-                        min-width: 80px; 
-                        flex-shrink: 0; 
-                        text-align: right; 
-                        padding-right: 12px;
-                        font-size: 12px;
-                        line-height: 1.4;
-                        font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
-                    ">${index + 1}</div>
-                    <div class="parsed-content-column" style="flex: 1;">
-                        <div class="font-semibold text-sm mb-1" style="color: var(--text-primary);">${this.escapeHtml(title)}</div>
-                        <div class="text-xs" style="color: var(--text-secondary); word-break: break-all; overflow-wrap: anywhere;">${this.escapeHtml(content.substring(0, 100))}${content.length > 100 ? '...' : ''}</div>
-                    </div>
-                    <button onclick="app.copyToClipboard('${block.id || ''}')" class="copy-btn text-xs px-2 py-1 flex-shrink-0" style="background-color: var(--color-primary); color: var(--text-inverse); border: none; border-radius: 4px; cursor: pointer;">
-                        复制
-                    </button>
-                `;
-            } else {
-                item.innerHTML = `
-                    <div class="line-number-column" style="
-                        color: var(--text-tertiary); 
-                        min-width: 80px; 
-                        flex-shrink: 0; 
-                        text-align: right; 
-                        padding-right: 12px;
-                        font-size: 12px;
-                        line-height: 1.4;
-                        font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
-                    ">${index + 1}</div>
-                    <div class="text-sm" style="color: var(--text-secondary);">无解析结果</div>
-                `;
-            }
-        }
-        
-        // 添加鼠标悬停效果
-        item.addEventListener('mouseenter', () => {
-            item.style.backgroundColor = 'var(--bg-hover)';
-        });
-        
-        item.addEventListener('mouseleave', () => {
-            item.style.backgroundColor = 'var(--bg-content)';
-        });
-        
-        container.appendChild(item);
-        
-        // 只在需要时记录调试信息
-        // this.debug('VIRTUAL_SCROLL', `添加项目: ${type} ${index + 1}, 容器子元素数: ${container.children.length}`);
-    }
-    
-    // 分块加载实现
-    async loadChunk(chunkIndex) {
-        if (this.chunkLoading.loadedChunks.has(chunkIndex)) {
-            return; // 已经加载过了
-        }
-        
-        this.logDebug(`📦 加载数据块: ${chunkIndex}`);
-        
-        const startIndex = chunkIndex * this.chunkLoading.chunkSize;
-        const endIndex = Math.min(startIndex + this.chunkLoading.chunkSize, this.currentEntries.length);
-        
-        // 模拟分块加载（实际应用中这里会从服务器或文件系统加载）
-        const chunk = this.currentEntries.slice(startIndex, endIndex);
-        
-        // 标记为已加载
-        this.chunkLoading.loadedChunks.add(chunkIndex);
-        
-        this.logDebug(`✅ 数据块 ${chunkIndex} 加载完成，包含 ${chunk.length} 条日志`);
-        
-        return chunk;
-    }
-    
-    // 内存优化：清理不可见的数据
-    cleanupInvisibleData() {
-        if (!this.virtualScroll.enabled) return;
-        
-        const visibleStart = this.virtualScroll.startIndex;
-        const visibleEnd = this.virtualScroll.endIndex;
-        const bufferSize = this.virtualScroll.bufferSize * 3; // 扩大缓冲区
-        
-        let cleanedCount = 0;
-        
-        // 清理远离可见区域的数据
-        this.currentEntries.forEach((entry, index) => {
-            if (index < visibleStart - bufferSize || index > visibleEnd + bufferSize) {
-                // 清理渲染块数据以节省内存
-                if (entry && entry.rendered_blocks) {
-                    entry.rendered_blocks.forEach(block => {
-                        if (block.formatted_content && block.formatted_content.length > 1000) {
-                            block.formatted_content = block.formatted_content.substring(0, 1000) + '...';
-                            cleanedCount++;
-                        }
-                    });
-                }
-            }
-        });
-        
-        if (cleanedCount > 0) {
-            this.logDebug(`🧹 内存清理完成，清理了 ${cleanedCount} 个长内容块`);
-        }
-    }
-    
-    // 滚动时的数据管理
-    manageScrollData() {
-        // 检查并加载需要的数据
-        this.loadRequiredChunks();
-        
-        // 定期清理不可见数据
-        if (Math.random() < 0.1) { // 10% 概率清理
-            this.cleanupInvisibleData();
-        }
-    }
-    
-    // 性能监控
-    getPerformanceMetrics() {
-        const metrics = {
-            totalEntries: this.currentEntries.length,
-            visibleEntries: this.virtualScroll.endIndex - this.virtualScroll.startIndex,
-            loadedChunks: this.chunkLoading.loadedChunks.size,
-            totalChunks: this.chunkLoading.totalChunks,
-            memoryUsage: performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1024 / 1024) : 0
-        };
-        
-        this.logDebug(`📊 性能指标: ${JSON.stringify(metrics)}`);
-        return metrics;
-    }
-    
-    // 键盘导航处理
-    handleKeyboardNavigation(e) {
-        console.log(`⌨️ 键盘导航: ${e.key}`);
-        this.debug('KEYBOARD_NAV', `键盘导航: ${e.key}`);
-        
-        const container = document.getElementById('originalLog');
-        if (!container._virtualContainer) {
-            console.log('⚠️ 虚拟容器不存在，取消导航');
-            return;
-        }
-        
-        const currentScrollTop = container._virtualContainer.scrollTop;
-        const itemHeight = this.virtualScroll.itemHeight;
-        const containerHeight = this.virtualScroll.containerHeight || 400;
-        const maxScrollTop = this.currentEntries.length * itemHeight - containerHeight;
-        
-        let newScrollTop = currentScrollTop;
-        let shouldPreventDefault = false;
-        
-        switch (e.key) {
-            case 'ArrowUp':
-                newScrollTop = Math.max(0, currentScrollTop - itemHeight);
-                shouldPreventDefault = true;
-                break;
-            case 'ArrowDown':
-                newScrollTop = Math.min(maxScrollTop, currentScrollTop + itemHeight);
-                shouldPreventDefault = true;
-                break;
-            case 'PageUp':
-                newScrollTop = Math.max(0, currentScrollTop - containerHeight);
-                shouldPreventDefault = true;
-                break;
-            case 'PageDown':
-                newScrollTop = Math.min(maxScrollTop, currentScrollTop + containerHeight);
-                shouldPreventDefault = true;
-                break;
-            case 'Home':
-                newScrollTop = 0;
-                shouldPreventDefault = true;
-                break;
-            case 'End':
-                newScrollTop = maxScrollTop;
-                shouldPreventDefault = true;
-                break;
-        }
-        
-        if (shouldPreventDefault) {
-            e.preventDefault();
-            
-            // 平滑滚动到新位置
-            this.smoothScrollTo(newScrollTop);
-            
-            console.log(`⌨️ 键盘导航: ${e.key} -> 滚动到 ${Math.round(newScrollTop)}px`);
-            this.debug('KEYBOARD_NAV', `键盘导航: ${e.key} -> 滚动到 ${Math.round(newScrollTop)}px`);
-        }
-    }
-    
-    // 平滑滚动
-    smoothScrollTo(targetScrollTop) {
-        const originalContainer = document.getElementById('originalLog');
-        const parsedContainer = document.getElementById('parsedLog');
-        
-        if (!originalContainer._virtualContainer) return;
-        
-        const startScrollTop = originalContainer._virtualContainer.scrollTop;
-        const distance = targetScrollTop - startScrollTop;
-        const duration = Math.min(300, Math.abs(distance) * 0.5); // 动态调整滚动时间
-        const startTime = performance.now();
-        
-        const animateScroll = (currentTime) => {
-            const elapsed = currentTime - startTime;
-            const progress = Math.min(elapsed / duration, 1);
-            
-            // 使用缓动函数
-            const easeOutCubic = 1 - Math.pow(1 - progress, 3);
-            const currentScrollTop = startScrollTop + distance * easeOutCubic;
-            
-            originalContainer._virtualContainer.scrollTop = currentScrollTop;
-            parsedContainer._virtualContainer.scrollTop = currentScrollTop;
-            
-            if (progress < 1) {
-                requestAnimationFrame(animateScroll);
-            } else {
-                // 滚动完成，确保数据加载
-                this.updateVirtualScroll();
-            }
-        };
-        
-        requestAnimationFrame(animateScroll);
-    }
-    
-    // 确保滚动条和内容对应
-    ensureScrollSync() {
-        const originalContainer = document.getElementById('originalLog');
-        const parsedContainer = document.getElementById('parsedLog');
-        
-        if (!originalContainer._virtualContainer || !parsedContainer._virtualContainer) return;
-        
-        // 同步滚动位置
-        if (originalContainer._virtualContainer.scrollTop !== parsedContainer._virtualContainer.scrollTop) {
-            parsedContainer._virtualContainer.scrollTop = originalContainer._virtualContainer.scrollTop;
-        }
-        
-        // 确保虚拟滚动状态同步
-        this.virtualScroll.scrollTop = originalContainer._virtualContainer.scrollTop;
-        this.updateVirtualScroll();
-    }
-    
-    // 启用大文件模式
-    enableLargeFileMode() {
-        this.info('MEMORY_MANAGER', '启用大文件优化模式');
-        
-        // 开启虚拟滚动
-        this.virtualScroll.enabled = true;
-        this.virtualScroll.bufferSize = 20; // 增加缓冲区
-        
-        // 开启分块加载
-        this.chunkLoading.enabled = true;
-        this.chunkLoading.chunkSize = 500; // 较小的块大小
-        this.chunkLoading.adaptiveChunkSize = true;
-        
-        // 开启内存监控
-        this.memoryManager.enableMonitoring = true;
-        
-        // 更新UI状态
-        if (document.getElementById('virtualScrollEnabled')) {
-            document.getElementById('virtualScrollEnabled').checked = true;
-        }
-        if (document.getElementById('chunkLoadingEnabled')) {
-            document.getElementById('chunkLoadingEnabled').checked = true;
-        }
-        
-        this.logDebug('🚀 大文件优化模式已启用');
-    }
-    
-    // 检查内存使用情况
-    checkMemoryUsage() {
-        if (!this.memoryManager.enableMonitoring) return;
-        
-        try {
-            // 估算当前内存使用量
-            const estimatedUsage = this.estimateMemoryUsage();
-            this.memoryManager.currentMemoryUsage = estimatedUsage;
-            
-            // 检查是否需要GC
-            if (estimatedUsage > this.memoryManager.gcThreshold) {
-                this.performGarbageCollection();
-            }
-            
-        } catch (error) {
-            this.warn('MEMORY_MANAGER', '内存检查失败', { error: error.message });
-        }
-    }
-    
-    // 估算内存使用量
-    estimateMemoryUsage() {
-        let totalSize = 0;
-        
-        // 估算日志数据大小
-        if (this.currentEntries && this.currentEntries.length > 0) {
-            const sampleEntry = this.currentEntries[0];
-            const entrySize = JSON.stringify(sampleEntry).length * 2; // UTF-16字符
-            totalSize += entrySize * this.currentEntries.length;
-        }
-        
-        // 估算DOM元素大小
-        const domElements = document.querySelectorAll('.log-line, .rendered-block');
-        totalSize += domElements.length * 500; // 每个DOM元素估计500字节
-        
-        // 估算日志缓冲区大小
-        if (this.logger.logs) {
-            totalSize += this.logger.logs.length * 200;
-        }
-        
-        return totalSize;
-    }
-    
-    // 执行垃圾回收
-    performGarbageCollection() {
-        const now = Date.now();
-        if (now - this.memoryManager.lastGcTime < 30000) { // 30秒内不重复GC
-            return;
-        }
-        
-        this.info('MEMORY_MANAGER', '开始内存清理');
-        
-        try {
-            // 清理旧的日志数据
-            if (this.logger.logs.length > this.logger.maxMemoryLogs) {
-                const removeCount = this.logger.logs.length - this.logger.maxMemoryLogs;
-                this.logger.logs.splice(0, removeCount);
-                this.debug('MEMORY_MANAGER', `清理了 ${removeCount} 条历史日志`);
-            }
-            
-            // 清理不可见的数据
-            this.cleanupInvisibleData();
-            
-            // 清理DOM元素
-            this.cleanupUnusedDomElements();
-            
-            // 强制垃圾回收（如果浏览器支持）
-            if (window.gc) {
-                window.gc();
-            }
-            
-            this.memoryManager.lastGcTime = now;
-            this.debug('MEMORY_MANAGER', '内存清理完成');
-            
-        } catch (error) {
-            this.error('MEMORY_MANAGER', '内存清理失败', { error: error.message });
-        }
-    }
-    
-    // 清理未使用的DOM元素
-    cleanupUnusedDomElements() {
-        // 清理已经不在可见区域的DOM元素
-        const containers = [document.getElementById('originalLog'), document.getElementById('parsedLog')];
-        
-        containers.forEach(container => {
-            if (!container || !container._visibleContainer) return;
-            
-            const visibleContainer = container._visibleContainer;
-            const children = Array.from(visibleContainer.children);
-            
-            // 如果子元素过多，清理一些
-            if (children.length > this.virtualScroll.visibleCount * 3) {
-                const removeCount = children.length - this.virtualScroll.visibleCount * 2;
-                for (let i = 0; i < removeCount; i++) {
-                    if (children[i]) {
-                        children[i].remove();
-                    }
-                }
-                this.debug('MEMORY_MANAGER', `清理了 ${removeCount} 个未使用的DOM元素`);
-            }
-        });
-    }
-    
-    // 更新内存使用情况
-    updateMemoryUsage() {
-        if (!this.memoryManager.enableMonitoring) return;
-        
-        const currentUsage = this.estimateMemoryUsage();
-        this.memoryManager.currentMemoryUsage = currentUsage;
-        
-        // 更新UI显示
-        const memoryUsageElement = document.getElementById('memoryUsage');
-        if (memoryUsageElement) {
-            const usageMB = (currentUsage / (1024 * 1024)).toFixed(1);
-            const maxMB = (this.memoryManager.maxMemoryUsage / (1024 * 1024)).toFixed(0);
-            memoryUsageElement.textContent = `${usageMB}MB / ${maxMB}MB`;
-        }
-        
-        // 检查是否接近限制
-        const usagePercentage = (currentUsage / this.memoryManager.maxMemoryUsage) * 100;
-        if (usagePercentage > 80) {
-            this.warn('MEMORY_MANAGER', `内存使用率过高: ${usagePercentage.toFixed(1)}%`);
-            
-            // 自动清理
-            if (usagePercentage > 90) {
-                this.performGarbageCollection();
-            }
+    hideLoading() {
+        const overlay = document.getElementById('loadingOverlay');
+        if (overlay) {
+            overlay.classList.add('hidden');
         }
     }
 }
 
 // 初始化应用
-var app = new LogWhisperApp();
+let app;
 
-// 页面加载完成后立即测试日志
-window.addEventListener('load', function() {
-    console.log('页面加载完成，开始测试日志系统...');
-    app.info('PAGE', '页面加载完成');
-    app.debug('PAGE', '开始测试日志输出');
-    app.warn('PAGE', '这是一个警告日志');
-    app.error('PAGE', '这是一个错误日志');
-    app.info('PAGE', '日志测试完成');
-    console.log('日志测试完成，请检查日志文件');
-});
+// 简化初始化逻辑
+function initApp() {
+    if (!app) {
+        app = new LogWhisperApp();
+    }
+}
+
+// 确保 DOM 完全加载后再初始化
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initApp);
+} else {
+    // DOM 已经加载完成，立即初始化
+    initApp();
+}
+
+// 监听系统主题变化
+if (window.matchMedia) {
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
+        if (app && app.currentTheme === 'auto') {
+            app.setTheme('auto');
+        }
+    });
+}

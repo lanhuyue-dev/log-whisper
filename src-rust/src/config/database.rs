@@ -59,7 +59,6 @@ impl ConfigDatabase {
             ("theme.font_family", "Segoe UI", "Theme", "字体族"),
             
             // 解析配置
-            ("parse.auto_parse", "true", "Parse", "自动解析"),
             ("parse.show_line_numbers", "true", "Parse", "显示行号"),
             ("parse.max_file_size", "100", "Parse", "最大文件大小(MB)"),
             ("parse.chunk_size", "1000", "Parse", "分块大小"),

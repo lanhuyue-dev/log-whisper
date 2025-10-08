@@ -5,6 +5,7 @@
   "main": "electron/main.js",
   "scripts": {
     "start": "electron .",
+    "launch": "start-electron-app.bat",
     "dev": "concurrently \"npm run dev:electron\" \"npm run dev:rust\"",
     "dev:electron": "electron . --dev",
     "dev:rust": "cd src-rust && cargo run --bin api-server",
@@ -64,7 +65,7 @@
     "postcss": "^8.5.6",
     "tailwindcss": "^3.4.0"
   },
-  "build": {
+    "build": {
     "appId": "com.logwhisper.app",
     "productName": "LogWhisper",
     "directories": {
@@ -74,19 +75,20 @@
     "files": [
       "electron/**/*",
       "src/**/*",
-      "src-rust/target/release/api-server*",
+      "src-rust/target/release/api-server.exe",
       "start-api.bat",
       "start-api.sh",
       "config.json",
-      "package.json"
+      "package.json",
+      "!src-rust/target/**/*",
+      "!node_modules/**/*",
+      "!dist/**/*",
+      "!build/**/*"
     ],
-    "extraFiles": [
+    "extraResources": [
       {
-        "from": "src-rust/target/release/",
-        "to": "resources/",
-        "filter": [
-          "api-server*"
-        ]
+        "from": "src-rust/target/release/api-server.exe",
+        "to": "api-server.exe"
       },
       {
         "from": "start-api.bat",
@@ -103,7 +105,6 @@
     ],
     "mac": {
       "category": "public.app-category.developer-tools",
-      "icon": "build/icon.icns",
       "target": [
         {
           "target": "dmg",
@@ -115,7 +116,6 @@
       ]
     },
     "win": {
-      "icon": "build/icon.ico",
       "target": [
         {
           "target": "nsis",
@@ -132,7 +132,6 @@
       ]
     },
     "linux": {
-      "icon": "build/icon.png",
       "target": [
         {
           "target": "AppImage",

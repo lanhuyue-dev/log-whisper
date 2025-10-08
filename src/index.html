@@ -40,7 +40,7 @@
                 </div>
             </div>
 
-            <!-- 中间：搜索和过滤 -->
+            <!-- 中间：搜索 -->
             <div class="flex items-center space-x-4 flex-1 max-w-2xl mx-8">
                 <!-- 搜索框 -->
                 <div class="relative flex-1">
@@ -52,23 +52,9 @@
                     </div>
                 </div>
                 
-                <!-- 过滤器按钮 -->
-                <div class="flex items-center space-x-1">
-                    <button class="px-3 py-1.5 text-sm rounded-md font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 focus:ring-gray-500 filter-btn active" data-filter="all">
-                        全部
-                    </button>
-                    <button class="px-3 py-1.5 text-sm rounded-md font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 focus:ring-gray-500 filter-btn" data-filter="error">
-                        ERROR
-                    </button>
-                    <button class="px-3 py-1.5 text-sm rounded-md font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 focus:ring-gray-500 filter-btn" data-filter="warn">
-                        WARN
-                    </button>
-                    <button class="px-3 py-1.5 text-sm rounded-md font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 focus:ring-gray-500 filter-btn" data-filter="mybatis">
-                        MyBatis
-                    </button>
-                    <button class="px-3 py-1.5 text-sm rounded-md font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 focus:ring-gray-500 filter-btn" data-filter="json">
-                        JSON
-                    </button>
+                <!-- 快速操作提示 -->
+                <div class="text-xs text-gray-500 dark:text-gray-400 hidden lg:block">
+                    💡 使用左侧面板进行日志级别过滤
                 </div>
             </div>
 
@@ -271,12 +257,6 @@
                         <h4 class="text-lg font-medium text-gray-900 dark:text-white">解析</h4>
                         <div class="flex items-center justify-between">
                             <label class="text-sm text-gray-700 dark:text-gray-300">
-                                <input type="checkbox" id="autoParse" class="rounded border-gray-300 text-primary-600 focus:ring-primary-500">
-                                自动解析
-                            </label>
-                        </div>
-                        <div class="flex items-center justify-between">
-                            <label class="text-sm text-gray-700 dark:text-gray-300">
                                 <input type="checkbox" id="showLineNumbers" class="rounded border-gray-300 text-primary-600 focus:ring-primary-500">
                                 显示行号
                             </label>
@@ -296,5 +276,25 @@
     </div>
 
     <script src="main.js"></script>
+    <script>
+        // 全局异常切换函数
+        function toggleException(element) {
+            const details = element.parentNode.querySelector('.exception-details');
+            const toggle = element.querySelector('.exception-toggle');
+            
+            if (!details || !toggle) {
+                console.warn('toggleException: 找不到必要的DOM元素');
+                return;
+            }
+            
+            if (details.style.display === 'none') {
+                details.style.display = 'block';
+                toggle.textContent = '▲';
+            } else {
+                details.style.display = 'none';
+                toggle.textContent = '▼';
+            }
+        }
+    </script>
 </body>
 </html>

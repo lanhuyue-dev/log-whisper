@@ -14,7 +14,10 @@ use std::fs;
 use std::path::Path;
 
 mod config;
+mod plugins;
 use config::{ConfigService, ThemeConfig, ThemeMode, ParseConfig, PluginConfig, WindowConfig, ConfigUpdateRequest};
+use plugins::core::EnhancedPluginManager;
+use plugins::LogEntry as PluginLogEntry;
 
 #[derive(Debug, Serialize, Deserialize)]
 struct AppConfig {
@@ -61,6 +64,7 @@ struct ParseResponse {
     stats: ParseStats,
     chunk_info: Option<ChunkInfo>,
     error: Option<String>,
+    detected_format: Option<String>, // 新增：检测到的日志格式
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -77,6 +81,8 @@ struct LogEntry {
     timestamp: Option<String>,
     level: Option<String>,
     formatted_content: Option<String>,
+    metadata: std::collections::HashMap<String, String>,
+    processed_by: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -187,6 +193,7 @@ async fn parse_log(Json(request): Json<ParseRequest>) -> Result<Json<ParseRespon
                 },
                 chunk_info: None,
                 error: Some(format!("文件不存在: {}", file_path)),
+                detected_format: None,
             }));
         }
         
@@ -204,6 +211,7 @@ async fn parse_log(Json(request): Json<ParseRequest>) -> Result<Json<ParseRespon
                 },
                 chunk_info: None,
                 error: Some(format!("路径不是文件: {}", file_path)),
+                detected_format: None,
             }));
         }
         
@@ -226,6 +234,7 @@ async fn parse_log(Json(request): Json<ParseRequest>) -> Result<Json<ParseRespon
                     },
                     chunk_info: None,
                     error: Some(format!("读取文件失败: {} - 错误: {}", file_path, e)),
+                    detected_format: None,
                 }));
             }
         }
@@ -246,34 +255,60 @@ async fn parse_log(Json(request): Json<ParseRequest>) -> Result<Json<ParseRespon
             },
             chunk_info: None,
             error: Some("请求中既没有文件路径也没有内容".to_string()),
+            detected_format: None,
         }));
     };
     
     let lines: Vec<&str> = content.lines().filter(|line| !line.trim().is_empty()).collect();
     let total_lines = lines.len();
     
+    // 添加详细的行调试信息
+    info!("过滤后有效行数: {}", total_lines);
+    for (i, line) in lines.iter().take(5).enumerate() {
+        info!("行 {}: 长度={}, 内容={}", i + 1, line.len(), line.chars().take(200).collect::<String>());
+    }
+    
     // 检查是否需要分块处理
     let chunk_size = request.chunk_size.unwrap_or(1000); // 默认1000行一块
     let chunk_index = request.chunk_index.unwrap_or(0);
     
-    let should_chunk = total_lines > chunk_size;
+    // 只有当文件大小超过分块大小且明确请求分块时才分块处理
+    let should_chunk = total_lines > chunk_size && request.chunk_size.is_some();
+    
+    info!("分块判断: total_lines={}, chunk_size={}, chunk_size_requested={}, should_chunk={}", 
+         total_lines, chunk_size, request.chunk_size.is_some(), should_chunk);
     
     if should_chunk {
-        // 分块处理
+        // 分块处理 - 使用插件系统进行快速处理
         let start_index = chunk_index * chunk_size;
-        let end_index = std::cmp::min(start_index + chunk_size, total_lines);
+        let _end_index = std::cmp::min(start_index + chunk_size, total_lines);
         
-        let mut entries = Vec::new();
-        for (global_index, line) in lines.iter().enumerate().skip(start_index).take(chunk_size) {
-            let entry = LogEntry {
+        info!("🔧 分块处理：使用插件系统快速处理容器JSON格式");
+        
+        // 将分块行转换为LogEntry
+        let chunk_entries: Vec<LogEntry> = lines.iter().enumerate().skip(start_index).take(chunk_size)
+            .map(|(global_index, line)| LogEntry {
                 line_number: global_index + 1,
                 content: line.to_string(),
                 timestamp: extract_timestamp(line),
                 level: extract_log_level(line),
                 formatted_content: Some(line.trim().to_string()),
-            };
-            entries.push(entry);
-        }
+                metadata: std::collections::HashMap::new(),
+                processed_by: vec!["generic_parser".to_string()],
+            })
+            .collect();
+        
+        // 使用插件系统处理分块
+        let processed_entries = match process_logs_with_plugin_system(&chunk_entries).await {
+            Ok(entries) => entries,
+            Err(e) => {
+                error!("分块插件系统处理失败: {}", e);
+                // 回退到传统处理
+                chunk_entries
+            }
+        };
+        
+        let entries = processed_entries;
         
         let total_chunks = (total_lines + chunk_size - 1) / chunk_size; // 向上取整
         let has_more = chunk_index + 1 < total_chunks;
@@ -302,21 +337,61 @@ async fn parse_log(Json(request): Json<ParseRequest>) -> Result<Json<ParseRespon
             stats,
             chunk_info: Some(chunk_info),
             error: None,
+            detected_format: None, // 分块处理时不做格式检测
         }))
     } else {
-        // 传统全量处理（小文件）
-        let mut entries = Vec::new();
+        // 使用增强插件系统处理（小文件）
+        info!("使用增强插件系统处理日志");
         
-        for (index, line) in lines.iter().enumerate() {
-            let entry = LogEntry {
+        // 将字符串行转换为LogEntry
+        let log_entries: Vec<LogEntry> = lines.iter().enumerate()
+            .map(|(index, line)| LogEntry {
                 line_number: index + 1,
                 content: line.to_string(),
                 timestamp: extract_timestamp(line),
                 level: extract_log_level(line),
                 formatted_content: Some(line.trim().to_string()),
-            };
-            entries.push(entry);
-        }
+                metadata: std::collections::HashMap::new(),
+                processed_by: vec!["generic_parser".to_string()],
+            })
+            .collect();
+        
+        // 使用插件系统处理
+        let processed_entries = match process_logs_with_plugin_system(&log_entries).await {
+            Ok(entries) => entries,
+            Err(e) => {
+                error!("插件系统处理失败: {}", e);
+                // 回退到传统处理
+                let mut fallback_entries = Vec::new();
+                for (index, line) in lines.iter().enumerate() {
+                    fallback_entries.push(LogEntry {
+                        line_number: index + 1,
+                        content: line.to_string(),
+                        timestamp: extract_timestamp(line),
+                        level: extract_log_level(line),
+                        formatted_content: Some(line.trim().to_string()),
+                        metadata: std::collections::HashMap::new(),
+                        processed_by: vec!["generic_parser".to_string()],
+                    });
+                }
+                return Ok(Json(ParseResponse {
+                    success: true,
+                    entries: fallback_entries,
+                    stats: ParseStats {
+                        total_lines: lines.len(),
+                        success_lines: lines.len(),
+                        error_lines: 0,
+                        parse_time_ms: start_time.elapsed().as_millis() as u64,
+                    },
+                    chunk_info: None,
+                    error: Some(format!("插件系统处理失败: {}", e)),
+                    detected_format: None,
+                }));
+            }
+        };
+        
+        // 插件系统已经返回LogEntry格式，直接使用
+        let entries = processed_entries;
         
         let parse_time = start_time.elapsed().as_millis() as u64;
         
@@ -327,7 +402,11 @@ async fn parse_log(Json(request): Json<ParseRequest>) -> Result<Json<ParseRespon
             parse_time_ms: parse_time,
         };
         
-        info!("全量解析完成: {} 行，耗时: {}ms", entries.len(), parse_time);
+        // 检测日志格式
+        let detected_format = detect_log_format(&lines);
+        
+        info!("全量解析完成: {} 行，处理为 {} 条目，耗时: {}ms，检测格式: {:?}", 
+              lines.len(), entries.len(), parse_time, detected_format);
         
         Ok(Json(ParseResponse {
             success: true,
@@ -335,8 +414,132 @@ async fn parse_log(Json(request): Json<ParseRequest>) -> Result<Json<ParseRespon
             stats,
             chunk_info: None,
             error: None,
+            detected_format: Some(detected_format),
         }))
     }
+}
+
+// 全局插件管理器缓存
+static mut PLUGIN_MANAGER: Option<Arc<EnhancedPluginManager>> = None;
+static INITIALIZED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+// 使用插件系统处理日志
+async fn process_logs_with_plugin_system(entries: &[LogEntry]) -> Result<Vec<LogEntry>, String> {
+    info!("🔧 开始插件系统处理，输入条目数: {}", entries.len());
+    
+    // 输出前几个条目的内容用于调试
+    for (i, entry) in entries.iter().take(3).enumerate() {
+        info!("🔧 输入条目 {}: 行号={}, 内容前100字符={}", 
+              i + 1, entry.line_number, entry.content.chars().take(100).collect::<String>());
+    }
+    
+    // 使用全局缓存的插件管理器
+    let plugin_manager = get_or_init_plugin_manager().await
+        .map_err(|e| format!("插件系统初始化失败: {}", e))?;
+    
+    info!("🔧 使用缓存的插件系统");
+    
+    // 转换LogEntry到PluginLogEntry
+    let plugin_entries: Vec<PluginLogEntry> = entries.iter().map(|entry| {
+        PluginLogEntry {
+            line_number: entry.line_number,
+            content: entry.content.clone(),
+            timestamp: entry.timestamp.clone(),
+            level: entry.level.clone(),
+            formatted_content: entry.formatted_content.clone(),
+            metadata: std::collections::HashMap::new(),
+            processed_by: Vec::new(),
+        }
+    }).collect();
+    
+    // 处理日志条目
+    let result = plugin_manager.process_log_entries(plugin_entries).await
+        .map_err(|e| format!("插件处理失败: {}", e))?;
+    
+    info!("🔧 插件系统处理完成，输出条目数: {}", result.len());
+    
+    // 转换回LogEntry
+    let converted_entries: Vec<LogEntry> = result.into_iter().map(|entry| {
+        LogEntry {
+            line_number: entry.line_number,
+            content: entry.content,
+            timestamp: entry.timestamp,
+            level: entry.level,
+            formatted_content: entry.formatted_content,
+            metadata: entry.metadata,
+            processed_by: entry.processed_by,
+        }
+    }).collect();
+    
+    // 输出前几个条目的调试信息
+    for (i, entry) in converted_entries.iter().take(3).enumerate() {
+        info!("🔧 处理后的条目 {}: 行号={}, 内容长度={}, formatted_content: {:?}", 
+              i + 1, entry.line_number, entry.content.len(),
+              entry.formatted_content.as_ref().map(|s| s.chars().take(50).collect::<String>()));
+    }
+    
+    Ok(converted_entries)
+}
+
+// 获取或初始化全局插件管理器
+async fn get_or_init_plugin_manager() -> Result<Arc<EnhancedPluginManager>, String> {
+    if INITIALIZED.load(std::sync::atomic::Ordering::Relaxed) {
+        unsafe {
+            if let Some(ref manager) = PLUGIN_MANAGER {
+                return Ok(manager.clone());
+            }
+        }
+    }
+    
+    // 初始化插件管理器
+    let plugin_manager = Arc::new(EnhancedPluginManager::new());
+    plugin_manager.initialize().await
+        .map_err(|e| format!("插件系统初始化失败: {}", e))?;
+    
+    unsafe {
+        PLUGIN_MANAGER = Some(plugin_manager.clone());
+    }
+    INITIALIZED.store(true, std::sync::atomic::Ordering::Relaxed);
+    
+    Ok(plugin_manager)
+}
+
+// 检测日志格式
+fn detect_log_format(lines: &[&str]) -> String {
+    if lines.is_empty() {
+        return "Unknown".to_string();
+    }
+    
+    // 检查SpringBoot格式
+    let springboot_count = lines.iter()
+        .filter(|line| {
+            line.contains("INFO") || line.contains("ERROR") || line.contains("WARN") || line.contains("DEBUG")
+        })
+        .count();
+    
+    if springboot_count > lines.len() / 2 {
+        return "SpringBoot".to_string();
+    }
+    
+    // 检查Docker JSON格式
+    let docker_json_count = lines.iter()
+        .filter(|line| line.trim().starts_with('{') && line.contains("\"log\":") && line.contains("\"stream\":"))
+        .count();
+    
+    if docker_json_count > lines.len() / 2 {
+        return "DockerJson".to_string();
+    }
+    
+    // 检查MyBatis格式
+    let mybatis_count = lines.iter()
+        .filter(|line| line.contains("Preparing:") || line.contains("Parameters:") || line.contains("==>"))
+        .count();
+    
+    if mybatis_count > 0 {
+        return "MyBatis".to_string();
+    }
+    
+    "Unknown".to_string()
 }
 
 // 测试解析端点
@@ -358,6 +561,305 @@ async fn test_parse(Json(request): Json<ParseRequest>) -> Result<Json<serde_json
         "request_type": request_type,
         "request": request
     })))
+}
+
+// 使用增强插件系统处理日志
+
+// 日志格式枚举
+#[derive(Debug, PartialEq)]
+enum LogFormat {
+    DockerJson,
+    SpringBoot,
+    Generic,
+}
+
+
+// 检测是否为 Docker JSON 格式行
+fn is_docker_json_line(line: &str) -> bool {
+    let trimmed = line.trim();
+    
+    // 详细检测日志
+    let starts_with_brace = trimmed.starts_with('{');
+    let ends_with_brace = trimmed.ends_with('}');
+    let has_log = trimmed.contains("\"log\":");
+    let has_stream = trimmed.contains("\"stream\":");
+    let has_time = trimmed.contains("\"time\":");
+    
+    info!("检测 Docker JSON 行: 开始{{={}, 结束}}={}, log={}, stream={}, time={} | 内容: {:?}", 
+         starts_with_brace, ends_with_brace, has_log, has_stream, has_time, trimmed.chars().take(200).collect::<String>());
+    
+    // 必须以 { 开始和 } 结尾
+    if !starts_with_brace || !ends_with_brace {
+        return false;
+    }
+    
+    // 检查是否包含 Docker JSON 的关键字段
+    has_log && has_stream && has_time
+}
+
+// 检测是否为 Spring Boot 格式行
+fn is_spring_boot_line(line: &str) -> bool {
+    // Spring Boot 日志通常包含时间戳和日志级别
+    let has_timestamp = extract_timestamp(line).is_some();
+    let has_level = extract_log_level(line).is_some();
+    let has_thread = line.contains("---") && line.contains("[");
+    
+    // 标准Spring Boot格式
+    if has_timestamp && has_level && has_thread {
+        return true;
+    }
+    
+    // 检查是否是异常堆栈相关行（这些也应该用Spring Boot解析器处理）
+    let trimmed = line.trim();
+    
+    // 异常类名行
+    if trimmed.contains("Exception:") || trimmed.contains("Error:") || 
+       trimmed.ends_with("Exception") || trimmed.ends_with("Error") ||
+       trimmed.starts_with("Caused by:") {
+        return true;
+    }
+    
+    // 堆栈跟踪行
+    if trimmed.starts_with("at ") && trimmed.contains("(") && trimmed.contains(")") {
+        return true;
+    }
+    
+    false
+}
+
+// 处理 Docker JSON 格式日志
+fn process_docker_json_lines(lines: &[&str]) -> Vec<LogEntry> {
+    let mut entries = Vec::new();
+    info!("开始处理 Docker JSON 格式，总行数: {}", lines.len());
+    
+    for (index, line) in lines.iter().enumerate() {
+        if let Some(parsed) = parse_docker_json_line(line) {
+            info!("成功解析第 {} 行 Docker JSON: level={}, stream={}, content={}", 
+                 index + 1, parsed.level, parsed.stream, parsed.log_content.chars().take(50).collect::<String>());
+            
+            let entry = LogEntry {
+                line_number: index + 1,
+                content: parsed.log_content.trim().to_string(), // 只返回日志内容，去掉换行符
+                timestamp: Some(parsed.timestamp.clone()),
+                level: Some(parsed.level.clone()),
+                formatted_content: Some(parsed.log_content.trim().to_string()), // 简化格式化内容
+                metadata: std::collections::HashMap::new(),
+                processed_by: vec!["docker_json_parser".to_string()],
+            };
+            entries.push(entry);
+        } else {
+            info!("第 {} 行解析失败，作为普通文本处理: {}", 
+                 index + 1, line.chars().take(100).collect::<String>());
+            
+            // 如果解析失败，作为普通文本处理
+            let entry = LogEntry {
+                line_number: index + 1,
+                content: line.to_string(),
+                timestamp: extract_timestamp(line),
+                level: extract_log_level(line),
+                formatted_content: Some(line.trim().to_string()),
+                metadata: std::collections::HashMap::new(),
+                processed_by: vec!["generic_parser".to_string()],
+            };
+            entries.push(entry);
+        }
+    }
+    
+    info!("Docker JSON 处理完成，生成 {} 个条目", entries.len());
+    entries
+}
+
+// Docker JSON 解析结果结构
+struct DockerJsonLog {
+    log_content: String,
+    stream: String,
+    timestamp: String,
+    level: String,
+}
+
+// 解析单行 Docker JSON
+fn parse_docker_json_line(line: &str) -> Option<DockerJsonLog> {
+    use serde_json::Value;
+    
+    if let Ok(json) = serde_json::from_str::<Value>(line) {
+        let log_content = json.get("log")?.as_str()?.to_string();
+        let stream = json.get("stream")?.as_str()?.to_string();
+        let timestamp = json.get("time")?.as_str()?.to_string();
+        
+        // 根据流类型和内容确定日志级别
+        let level = if stream == "stderr" {
+            "ERROR".to_string()
+        } else {
+            // 检查日志内容中的级别关键词
+            let content_lower = log_content.to_lowercase();
+            if content_lower.contains("error") || content_lower.contains("exception") {
+                "ERROR".to_string()
+            } else if content_lower.contains("warn") {
+                "WARN".to_string()
+            } else if content_lower.contains("debug") {
+                "DEBUG".to_string()
+            } else {
+                "INFO".to_string()
+            }
+        };
+        
+        return Some(DockerJsonLog {
+            log_content,
+            stream,
+            timestamp,
+            level,
+        });
+    }
+    
+    None
+}
+
+// 处理通用格式日志
+fn process_generic_lines(lines: &[&str]) -> Vec<LogEntry> {
+    let mut entries = Vec::new();
+    
+    for (index, line) in lines.iter().enumerate() {
+        let entry = LogEntry {
+            line_number: index + 1,
+            content: line.to_string(),
+            timestamp: extract_timestamp(line),
+            level: extract_log_level(line),
+            formatted_content: Some(line.trim().to_string()),
+            metadata: std::collections::HashMap::new(),
+            processed_by: vec!["generic_parser".to_string()],
+        };
+        entries.push(entry);
+    }
+    
+    entries
+}
+
+// 聚合异常堆栈跟踪行
+fn aggregate_exception_lines(lines: &[&str]) -> Vec<LogEntry> {
+    let mut entries = Vec::new();
+    let mut i = 0;
+    
+    while i < lines.len() {
+        let line = lines[i];
+        
+        // 检查是否是异常开始行（包含时间戳和异常信息）
+        if is_exception_start_line(line) {
+            let mut exception_content = vec![line.to_string()];
+            let mut j = i + 1;
+            
+            // 收集所有后续的堆栈跟踪行
+            while j < lines.len() && (is_stack_trace_line(lines[j]) || is_exception_continuation_line(lines[j])) {
+                exception_content.push(lines[j].to_string());
+                j += 1;
+            }
+            
+            // 创建聚合的异常条目
+            let full_content = exception_content.join("\n");
+            let entry = LogEntry {
+                line_number: i + 1,
+                content: full_content,
+                timestamp: extract_timestamp(line),
+                level: extract_log_level(line),
+                formatted_content: Some(exception_content.join("\n")),
+                metadata: std::collections::HashMap::new(),
+                processed_by: vec!["exception_aggregator".to_string()],
+            };
+            entries.push(entry);
+            
+            // 跳过已处理的行
+            i = j;
+        } else {
+            // 普通日志行
+            let entry = LogEntry {
+                line_number: i + 1,
+                content: line.to_string(),
+                timestamp: extract_timestamp(line),
+                level: extract_log_level(line),
+                formatted_content: Some(line.trim().to_string()),
+                metadata: std::collections::HashMap::new(),
+                processed_by: vec!["generic_parser".to_string()],
+            };
+            entries.push(entry);
+            i += 1;
+        }
+    }
+    
+    entries
+}
+
+// 检查是否是异常开始行
+fn is_exception_start_line(line: &str) -> bool {
+    let has_timestamp = extract_timestamp(line).is_some();
+    let has_error_level = extract_log_level(line) == Some("ERROR".to_string());
+    
+    // 情况1：标准日志行 + ERROR级别（异常的正式开始）
+    if has_timestamp && has_error_level {
+        return true;
+    }
+    
+    // 情况2：直接的异常类名行（紧接在ERROR日志后）
+    let trimmed = line.trim();
+    if !has_timestamp && (
+        trimmed.contains("Exception:") || 
+        trimmed.contains("Error:") ||
+        trimmed.ends_with("Exception") ||
+        trimmed.ends_with("Error") ||
+        trimmed.starts_with("Caused by:")
+    ) {
+        return true;
+    }
+    
+    false
+}
+
+// 检查是否是堆栈跟踪行
+fn is_stack_trace_line(line: &str) -> bool {
+    let trimmed = line.trim();
+    
+    // 标准Java堆栈跟踪格式
+    if trimmed.starts_with("at ") {
+        return true;
+    }
+    
+    // Caused by 行
+    if trimmed.starts_with("Caused by:") {
+        return true;
+    }
+    
+    // Suppressed 行
+    if trimmed.starts_with("Suppressed:") {
+        return true;
+    }
+    
+    // common frames omitted
+    if trimmed.contains("common frames omitted") || trimmed.contains("more") {
+        return true;
+    }
+    
+    false
+}
+
+// 检查是否是异常继续行
+fn is_exception_continuation_line(line: &str) -> bool {
+    let trimmed = line.trim();
+    
+    if trimmed.is_empty() {
+        return false;
+    }
+    
+    // 没有时间戳的非堆栈跟踪行，可能是异常消息
+    if !extract_timestamp(line).is_some() && !trimmed.starts_with("at ") {
+        // 检查是否是下一个正常日志的开始
+        // 如果包含日志级别关键词，则不是异常继续行
+        let level_keywords = ["INFO", "DEBUG", "WARN", "ERROR", "TRACE"];
+        let has_level_keyword = level_keywords.iter().any(|keyword| line.contains(keyword));
+        
+        if !has_level_keyword {
+            return true;
+        }
+    }
+    
+    false
 }
 
 // 提取时间戳
@@ -387,17 +889,17 @@ fn extract_log_level(line: &str) -> Option<String> {
     let line_lower = line.to_lowercase();
     
     if line_lower.contains("error") || line_lower.contains("err") {
-        Some("Error".to_string())
+        Some("ERROR".to_string())
     } else if line_lower.contains("warn") || line_lower.contains("warning") {
-        Some("Warn".to_string())
+        Some("WARN".to_string())
     } else if line_lower.contains("info") {
-        Some("Info".to_string())
+        Some("INFO".to_string())
     } else if line_lower.contains("debug") {
-        Some("Debug".to_string())
+        Some("DEBUG".to_string())
     } else if line_lower.contains("trace") {
-        Some("Trace".to_string())
+        Some("TRACE".to_string())
     } else {
-        Some("Info".to_string()) // 默认级别
+        Some("INFO".to_string()) // 默认级别
     }
 }
 
@@ -644,6 +1146,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 初始化配置服务
     let config_service = Arc::new(ConfigService::new("./config.db").map_err(|e| format!("配置服务初始化失败: {}", e))?);
     info!("✅ 配置服务初始化完成");
+    
+    // 初始化插件系统
+    let plugin_manager = Arc::new(EnhancedPluginManager::new());
+    plugin_manager.initialize().await.map_err(|e| format!("插件系统初始化失败: {}", e))?;
+    info!("✅ 插件系统初始化完成");
     
     // 创建 CORS 层
     let cors = CorsLayer::new()

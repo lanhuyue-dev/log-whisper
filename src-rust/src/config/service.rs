@@ -127,7 +127,6 @@ impl ConfigService {
     pub async fn set_parse_config(&self, parse: &ParseConfig) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let db = self.db.lock().unwrap();
         
-        db.set_config("parse.auto_parse", &parse.auto_parse.to_string(), "Parse", Some("自动解析"))?;
         db.set_config("parse.show_line_numbers", &parse.show_line_numbers.to_string(), "Parse", Some("显示行号"))?;
         db.set_config("parse.max_file_size", &parse.max_file_size.to_string(), "Parse", Some("最大文件大小"))?;
         db.set_config("parse.chunk_size", &parse.chunk_size.to_string(), "Parse", Some("分块大小"))?;

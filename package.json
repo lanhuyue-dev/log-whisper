@@ -1,36 +1,30 @@
 {
-  "name": "log-whisper-electron",
+  "name": "log-whisper",
   "version": "1.0.0",
-  "description": "LogWhisper - 强大的日志分析桌面工具 (基于Electron+Rust架构)",
-  "main": "electron/main.js",
+  "description": "LogWhisper - 强大的日志分析桌面工具 (基于Tauri+Rust架构)",
   "scripts": {
-    "start": "electron .",
-    "launch": "start-electron-app.bat",
-    "dev": "concurrently \"npm run dev:electron\" \"npm run dev:rust\"",
-    "dev:electron": "electron . --dev",
-    "dev:rust": "cd src-rust && cargo run --bin api-server",
-    "build": "npm run build:css && npm run build:rust",
+    "start": "tauri dev",
+    "dev": "tauri dev",
+    "build": "npm run build:css:prod && tauri build",
     "build:css": "tailwindcss -i ./src/style.css -o ./src/style.css --watch",
     "build:css:prod": "tailwindcss -i ./src/style.css -o ./src/style.css --minify",
     "build:styles": "tailwindcss -i ./src/style.css -o ./src/style.css --minify",
     "watch:styles": "tailwindcss -i ./src/style.css -o ./src/style.css --watch",
-    "build:rust": "cd src-rust && cargo build --release --bin api-server",
-    "package": "electron-builder",
-    "dist": "npm run build:css:prod && npm run build:rust && electron-builder",
-    "dist:win": "npm run build:css:prod && npm run build:rust && electron-builder --win",
-    "dist:mac": "npm run build:css:prod && npm run build:rust && electron-builder --mac",
-    "dist:linux": "npm run build:css:prod && npm run build:rust && electron-builder --linux",
-    "start:api": "start-api.bat",
-    "start:api:unix": "./start-api.sh",
-    "clean": "rm -rf dist/ node_modules/ src-rust/target/",
-    "test": "npm run test:rust",
-    "test:rust": "cd src-rust && cargo test"
+    "build:rust": "cd src-tauri && cargo build --release",
+    "package": "tauri build",
+    "dist": "npm run build",
+    "dist:win": "npm run build:css:prod && tauri build --target x86_64-pc-windows-msvc",
+    "dist:mac": "npm run build:css:prod && tauri build --target universal-apple-darwin",
+    "dist:linux": "npm run build:css:prod && tauri build --target x86_64-unknown-linux-gnu",
+    "clean": "rm -rf dist/ node_modules/ src-tauri/target/",
+    "test": "npm run test:tauri",
+    "test:tauri": "cd src-tauri && cargo test"
   },
   "keywords": [
     "log",
     "analysis",
     "desktop",
-    "electron",
+    "tauri",
     "rust",
     "parser",
     "developer-tools",
@@ -58,101 +52,9 @@
   "devDependencies": {
     "@tailwindcss/forms": "^0.5.10",
     "@tailwindcss/typography": "^0.5.19",
+    "@tauri-apps/cli": "^1.0.0",
     "autoprefixer": "^10.4.21",
-    "concurrently": "^8.2.2",
-    "electron": "^27.0.0",
-    "electron-builder": "^24.6.4",
     "postcss": "^8.5.6",
     "tailwindcss": "^3.4.0"
-  },
-    "build": {
-    "appId": "com.logwhisper.app",
-    "productName": "LogWhisper",
-    "directories": {
-      "output": "dist",
-      "buildResources": "build"
-    },
-    "files": [
-      "electron/**/*",
-      "src/**/*",
-      "src-rust/target/release/api-server.exe",
-      "start-api.bat",
-      "start-api.sh",
-      "config.json",
-      "package.json",
-      "!src-rust/target/**/*",
-      "!node_modules/**/*",
-      "!dist/**/*",
-      "!build/**/*"
-    ],
-    "extraResources": [
-      {
-        "from": "src-rust/target/release/api-server.exe",
-        "to": "api-server.exe"
-      },
-      {
-        "from": "start-api.bat",
-        "to": "start-api.bat"
-      },
-      {
-        "from": "start-api.sh",
-        "to": "start-api.sh"
-      },
-      {
-        "from": "config.json",
-        "to": "config.json"
-      }
-    ],
-    "mac": {
-      "category": "public.app-category.developer-tools",
-      "target": [
-        {
-          "target": "dmg",
-          "arch": [
-            "x64",
-            "arm64"
-          ]
-        }
-      ]
-    },
-    "win": {
-      "target": [
-        {
-          "target": "nsis",
-          "arch": [
-            "x64"
-          ]
-        },
-        {
-          "target": "portable",
-          "arch": [
-            "x64"
-          ]
-        }
-      ]
-    },
-    "linux": {
-      "target": [
-        {
-          "target": "AppImage",
-          "arch": [
-            "x64"
-          ]
-        },
-        {
-          "target": "deb",
-          "arch": [
-            "x64"
-          ]
-        }
-      ],
-      "category": "Development"
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true
-    }
   }
 }

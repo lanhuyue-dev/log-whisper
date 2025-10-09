@@ -3,7 +3,22 @@
     "allow": [
       "Bash(cargo check:*)",
       "Bash(dir /A:D)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git reset:*)",
+      "Bash(git commit:*)",
+      "Bash(npm run build:css:prod:*)",
+      "Bash(npm run dev:*)",
+      "Bash(npx tauri:*)",
+      "Bash(timeout:*)",
+      "Bash(npm install:*)",
+      "Bash(cargo build:*)",
+      "Bash(cargo run:*)",
+      "Bash(npm run tauri:dev:*)",
+      "Bash(tauri:*)",
+      "Bash(cargo:*)",
+      "Bash(rustc:*)",
+      "Bash(tasklist:*)",
+      "Bash(findstr:*)"
     ],
     "deny": [],
     "ask": []

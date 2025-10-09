@@ -6,13 +6,6 @@
 /node_modules/
 /.pnp
 .pnp.js
-
-# Rust 构建输出
-/src-rust/target/
-/src-rust/Cargo.lock
-
-# Tauri 旧版本文件 (已迁移到 Electron)
-/src-tauri/
 tauri.conf.json
 
 # 日志文件
@@ -82,3 +75,4 @@ debug-*
 # 性能分析文件
 *.cpuprofile
 *.heapprofile
+/target/

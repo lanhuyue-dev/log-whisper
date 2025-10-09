@@ -1,0 +1,50 @@
+[package]
+name = "log-whisper"
+version = "1.0.0"
+description = "LogWhisper - 强大的日志分析桌面工具"
+authors = ["LogWhisper Team"]
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "1.0", features = [] }
+
+[dependencies]
+tauri = { version = "1.0", features = [ "fs-all", "dialog-all", "path-all", "shell-open"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1", features = ["full"] }
+
+# 日志处理
+log = "0.4"
+env_logger = "0.10"
+
+# 错误处理
+thiserror = "1.0"
+anyhow = "1.0"
+
+# 时间处理
+chrono = { version = "0.4", features = ["serde"] }
+
+# 正则表达式
+regex = "1.10"
+
+# 文件处理
+walkdir = "2.4"
+mime_guess = "2.0"
+
+# 字符串处理
+unicode-segmentation = "1.10"
+encoding_rs = "0.8"
+
+# 并发处理
+rayon = "1.8"
+
+# UUID生成
+uuid = { version = "1.6", features = ["v4"] }
+
+# 数据库
+rusqlite = { version = "0.31", features = ["bundled"] }
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]

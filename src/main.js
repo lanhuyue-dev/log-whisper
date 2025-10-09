@@ -9,7 +9,10 @@ class LogWhisperApp {
         this.debugMode = false;
 
         // 检测是否在 Tauri 环境中
-        this.isTauriEnv = typeof window.__TAURI__ !== 'undefined';
+        // Tauri 2.x API might be loaded asynchronously
+        this.isTauriEnv = window.__TAURI__ !== undefined ||
+                          window.__TAURI_INTERNALS__ !== undefined ||
+                          document.documentElement.hasAttribute('data-tauri');
 
            // 插件管理
            this.installedPlugins = [];
@@ -75,7 +78,7 @@ class LogWhisperApp {
                console.log('📋 5. 开始环境检测');
 
                // 初始化 Tauri 环境
-               this.initTauri();
+               await this.initTauri();
                console.log('📋 6. Tauri 环境初始化完成');
 
                // 更新加载状态
@@ -111,21 +114,62 @@ class LogWhisperApp {
            }
 
            // 初始化 Tauri 环境
-           initTauri() {
-               if (this.isTauriEnv) {
-                   console.log('✅ Tauri 环境检测成功');
+           async initTauri() {
+               // 等待 Tauri API 加载
+               let retries = 0;
+               const maxRetries = 50; // 增加等待时间
 
-                   // 监听窗口事件
-                   if (window.__TAURI__.window) {
-                       window.__TAURI__.window.listen('tauri://close-requested', () => {
-                           console.log('🔒 收到窗口关闭请求');
-                       });
+               while (!window.__TAURI__ && retries < maxRetries) {
+                   await new Promise(resolve => setTimeout(resolve, 100));
+                   retries++;
+                   if (retries % 10 === 0) {
+                       console.log(`🔄 等待 Tauri API 加载... (${retries}/${maxRetries})`);
                    }
+               }
+
+               // 更详细的环境检测
+               if (window.__TAURI__) {
+                   console.log('✅ Tauri 环境检测成功');
+                   console.log('🔍 window.__TAURI__ 类型:', typeof window.__TAURI__);
+                   console.log('🔍 window.__TAURI__.invoke:', typeof window.__TAURI__.invoke);
+
+                   this.isTauriEnv = true;
 
                    // 初始化 Tauri API
                    this.tauri = window.__TAURI__;
+
+                   // 测试 invoke API 是否可用
+                   try {
+                       console.log('🧪 测试 Tauri invoke API...');
+                       if (typeof window.__TAURI__.invoke === 'function') {
+                           console.log('✅ Tauri invoke API 可用');
+                       } else {
+                           console.warn('⚠️ Tauri invoke API 不是函数类型:', typeof window.__TAURI__.invoke);
+                           // 尝试等待更多时间让 API 完全加载
+                           await new Promise(resolve => setTimeout(resolve, 1000));
+                           if (typeof window.__TAURI__.invoke === 'function') {
+                               console.log('✅ 延迟后 Tauri invoke API 可用');
+                           } else {
+                               console.warn('⚠️ 延迟后 Tauri invoke API 仍不可用');
+                           }
+                       }
+                   } catch (error) {
+                       console.warn('⚠️ Tauri invoke API 测试失败:', error.message);
+                   }
+
+                   // 监听窗口事件 (使用全局 API)
+                   try {
+                       // 简化的窗口事件监听
+                       if (window.__TAURI__.window) {
+                           console.log('✅ 窗口 API 可用');
+                       }
+                   } catch (error) {
+                       console.warn('⚠️ 窗口事件监听器设置失败:', error.message);
+                   }
                } else {
                    console.warn('⚠️ 未检测到 Tauri 环境，某些功能可能不可用');
+                   console.log('🔍 window.__TAURI__:', window.__TAURI__);
+                   this.isTauriEnv = false;
                }
            }
 
@@ -162,7 +206,14 @@ class LogWhisperApp {
 
                try {
                    console.log(`🔧 调用 Tauri 命令: ${command}`, args);
+
+                   // Use global window.__TAURI__ object
+                   if (!window.__TAURI__ || !window.__TAURI__.invoke) {
+                       throw new Error('Tauri invoke API 不可用');
+                   }
+
                    const result = await window.__TAURI__.invoke(command, args);
+
                    console.log(`✅ Tauri 命令 ${command} 执行成功:`, result);
                    return result;
                } catch (error) {
@@ -472,12 +523,15 @@ class LogWhisperApp {
 
            // 使用 Tauri API 读取文本文件
            async readTextFile(filePath) {
-               if (!this.tauri || !this.tauri.fs) {
-                   throw new Error('Tauri 文件系统 API 不可用');
-               }
-
                try {
-                   const content = await this.tauri.fs.readTextFile(filePath);
+                   // Use Tauri 1.x API for filesystem operations
+                   if (!window.__TAURI__ || !window.__TAURI__.invoke) {
+                       throw new Error('Tauri 文件系统 API 不可用');
+                   }
+
+                   const content = await window.__TAURI__.invoke('read_text_file', {
+                       path: filePath
+                   });
                    return content;
                } catch (error) {
                    throw new Error(`读取文件失败: ${error.message}`);
@@ -916,17 +970,38 @@ class LogWhisperApp {
                    const jsonData = JSON.stringify(exportData, null, 2);
 
                    // 使用 Tauri API 保存文件
-                   if (this.isTauriEnv && this.tauri && this.tauri.dialog) {
-                       const filePath = await this.tauri.dialog.save({
-                           defaultPath: `log-export-${new Date().toISOString().slice(0, 10)}.json`,
-                           filters: [{
-                               name: 'JSON Files',
-                               extensions: ['json']
-                           }]
-                       });
+                   if (this.isTauriEnv) {
+                       try {
+                           // Use global Tauri API for dialog operations
+                           if (!window.__TAURI__ || !window.__TAURI__.invoke) {
+                               throw new Error('Tauri dialog API 不可用');
+                           }
 
-                       if (filePath) {
-                           await this.tauri.fs.writeFile(filePath, jsonData);
+                           const filePath = await window.__TAURI__.invoke('save_dialog', {
+                               defaultPath: `log-export-${new Date().toISOString().slice(0, 10)}.json`,
+                               filters: [{
+                                   name: 'JSON Files',
+                                   extensions: ['json']
+                               }]
+                           });
+
+                           if (filePath) {
+                               await window.__TAURI__.invoke('write_file', {
+                                   path: filePath,
+                                   contents: jsonData
+                               });
+                               this.showSuccess('导出成功');
+                           }
+                       } catch (error) {
+                           console.warn('⚠️ Tauri 文件保存失败，使用浏览器下载:', error.message);
+                           // 回退到浏览器下载
+                           const blob = new Blob([jsonData], { type: 'application/json' });
+                           const url = URL.createObjectURL(blob);
+                           const a = document.createElement('a');
+                           a.href = url;
+                           a.download = `log-export-${new Date().toISOString().slice(0, 10)}.json`;
+                           a.click();
+                           URL.revokeObjectURL(url);
                            this.showSuccess('导出成功');
                        }
                    } else {

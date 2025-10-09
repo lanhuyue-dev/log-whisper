@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LogWhisper - Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+        .success { background: #d4edda; color: #155724; }
+        .warning { background: #fff3cd; color: #856404; }
+        .error { background: #f8d7da; color: #721c24; }
+        .info { background: #d1ecf1; color: #0c5460; }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        #logs {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 10px;
+            max-height: 400px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔧 LogWhisper Tauri 环境检测</h1>
+
+        <div id="status-container">
+            <div class="status info">正在检测 Tauri 环境...</div>
+        </div>
+
+        <div class="actions">
+            <button onclick="testTauriAPI()">测试 Tauri API</button>
+            <button onclick="testHealthCheck()">测试健康检查</button>
+            <button onclick="testPlugins()">测试插件列表</button>
+            <button onclick="clearLogs()">清空日志</button>
+        </div>
+
+        <div id="logs"></div>
+    </div>
+
+    <script>
+        let logs = [];
+
+        function log(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const logEntry = `[${timestamp}] ${message}`;
+            logs.push(logEntry);
+
+            console.log(logEntry);
+
+            const logsContainer = document.getElementById('logs');
+            if (logsContainer) {
+                logsContainer.innerHTML = logs.join('\n');
+                logsContainer.scrollTop = logsContainer.scrollHeight;
+            }
+
+            updateStatus(message, type);
+        }
+
+        function updateStatus(message, type) {
+            const container = document.getElementById('status-container');
+            if (container) {
+                container.innerHTML = `<div class="status ${type}">${message}</div>`;
+            }
+        }
+
+        function clearLogs() {
+            logs = [];
+            document.getElementById('logs').innerHTML = '';
+        }
+
+        async function testTauriAPI() {
+            log('🧪 开始测试 Tauri API...');
+
+            try {
+                // 检查 window.__TAURI__ 对象
+                if (typeof window.__TAURI__ !== 'undefined') {
+                    log('✅ window.__TAURI__ 对象存在');
+                    log(`🔍 window.__TAURI__ 类型: ${typeof window.__TAURI__}`);
+
+                    // 检查 invoke 方法
+                    if (typeof window.__TAURI__.invoke === 'function') {
+                        log('✅ window.__TAURI__.invoke 方法存在');
+                        log('🎉 Tauri API 基础检测通过！');
+                    } else {
+                        log('❌ window.__TAURI__.invoke 方法不存在');
+                        log(`🔍 window.__TAURI__.invoke 类型: ${typeof window.__TAURI__.invoke}`);
+                    }
+
+                    // 检查其他 API
+                    if (window.__TAURI__.dialog) {
+                        log('✅ dialog API 可用');
+                    }
+                    if (window.__TAURI__.fs) {
+                        log('✅ fs API 可用');
+                    }
+
+                } else {
+                    log('❌ window.__TAURI__ 对象不存在');
+                    log('🔍 尝试检查其他可能的全局对象...');
+
+                    if (typeof window.__TAURI_INTERNALS__ !== 'undefined') {
+                        log('ℹ️ window.__TAURI_INTERNALS__ 存在');
+                    }
+
+                    log('❌ Tauri 环境检测失败');
+                }
+
+            } catch (error) {
+                log(`❌ Tauri API 测试出错: ${error.message}`, 'error');
+            }
+        }
+
+        async function testHealthCheck() {
+            log('🏥 开始测试健康检查...');
+
+            try {
+                if (!window.__TAURI__ || !window.__TAURI__.invoke) {
+                    throw new Error('Tauri invoke API 不可用');
+                }
+
+                log('📡 调用 health_check 命令...');
+                const response = await window.__TAURI__.invoke('health_check');
+
+                log(`✅ 健康检查成功: ${JSON.stringify(response)}`);
+
+            } catch (error) {
+                log(`❌ 健康检查失败: ${error.message}`, 'error');
+            }
+        }
+
+        async function testPlugins() {
+            log('🔌 开始测试插件列表...');
+
+            try {
+                if (!window.__TAURI__ || !window.__TAURI__.invoke) {
+                    throw new Error('Tauri invoke API 不可用');
+                }
+
+                log('📡 调用 get_plugins 命令...');
+                const response = await window.__TAURI__.invoke('get_plugins');
+
+                log(`✅ 插件列表获取成功: ${JSON.stringify(response)}`);
+
+            } catch (error) {
+                log(`❌ 插件列表获取失败: ${error.message}`, 'error');
+            }
+        }
+
+        // 页面加载完成后自动运行测试
+        document.addEventListener('DOMContentLoaded', () => {
+            log('🚀 页面加载完成，开始自动检测...');
+
+            // 等待一段时间让 Tauri API 加载
+            setTimeout(() => {
+                testTauriAPI();
+            }, 1000);
+        });
+    </script>
+</body>
+</html>

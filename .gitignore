@@ -76,3 +76,4 @@ debug-*
 *.cpuprofile
 *.heapprofile
 /target/
+/src-rust/target/

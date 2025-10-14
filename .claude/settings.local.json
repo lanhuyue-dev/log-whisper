@@ -18,7 +18,12 @@
       "Bash(cargo:*)",
       "Bash(rustc:*)",
       "Bash(tasklist:*)",
-      "Bash(findstr:*)"
+      "Bash(findstr:*)",
+      "Bash(npm run build:*)",
+      "Bash(npx vite build:*)",
+      "WebSearch",
+      "Read(//d/**)",
+      "Bash(RUST_BACKTRACE=1 cargo test:*)"
     ],
     "deny": [],
     "ask": []

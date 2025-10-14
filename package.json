@@ -41,16 +41,16 @@
   "author": {
     "name": "LogWhisper Team",
     "email": "team@log-whisper.com",
-    "url": "https://log-whisper.com"
+    "url": "https://github.com/lanhuyue-dev/log-whisper"
   },
-  "license": "MIT",
-  "homepage": "https://github.com/your-org/log-whisper",
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/lanhuyue-dev/log-whisper",
   "repository": {
     "type": "git",
-    "url": "https://github.com/your-org/log-whisper.git"
+    "url": "https://github.com/lanhuyue-dev/log-whisper.git"
   },
   "bugs": {
-    "url": "https://github.com/your-org/log-whisper/issues"
+    "url": "https://github.com/lanhuyue-dev/log-whisper/issues"
   },
   "engines": {
     "node": ">=18.0.0",

@@ -1706,6 +1706,7 @@ dependencies = [
  "env_logger",
  "log",
  "mime_guess",
+ "once_cell",
  "rayon",
  "regex",
  "rusqlite",

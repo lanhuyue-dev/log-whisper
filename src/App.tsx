@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { invoke } from '@tauri-apps/api/tauri'
-import { FileText, Upload, Settings, Moon, Sun, Filter, Search, X } from 'lucide-react'
+import { FileText, Upload, Moon, Sun, Filter, Search, X } from 'lucide-react'
 
 interface LogEntry {
   line_number: number
@@ -34,6 +34,10 @@ interface Plugin {
   name: string
   description: string
   version: string
+}
+
+interface PluginsResponse {
+  plugins: Plugin[]
 }
 
 function App() {
@@ -73,10 +77,17 @@ function App() {
   // 加载插件列表
   const loadPlugins = async () => {
     try {
-      const response = await invoke<Plugin[]>('get_plugins')
-      setPlugins(response)
+      const response = await invoke<PluginsResponse>('get_plugins')
+      setPlugins(response.plugins)
     } catch (error) {
       console.error('加载插件失败:', error)
+      // 设置默认插件列表作为回退
+      setPlugins([
+        { name: 'auto', description: '自动检测', version: '1.0.0' },
+        { name: 'mybatis', description: 'MyBatis SQL 解析器', version: '1.0.0' },
+        { name: 'docker_json', description: 'Docker JSON 日志', version: '1.0.0' },
+        { name: 'raw', description: '原始文本', version: '1.0.0' }
+      ])
     }
   }
 
@@ -182,11 +193,8 @@ function App() {
     }
 
     // 搜索过滤
-    if (searchTerm && !log.content.toLowerCase().includes(searchTerm.toLowerCase())) {
-      return false
-    }
+    return !(searchTerm && !log.content.toLowerCase().includes(searchTerm.toLowerCase()));
 
-    return true
   })
 
   // 重置应用状态
@@ -206,7 +214,7 @@ function App() {
           <div className="w-16 h-16 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mx-auto"></div>
           <div className="space-y-2">
             <h2 className="text-2xl font-bold text-gray-900 dark:text-white">LogWhisper</h2>
-            <p className="text-gray-600 dark:text-gray-400">正在加载应用...</p>
+            <p className="text-gray-600 dark:text-gray-400">正在加载...</p>
           </div>
         </div>
       </div>
@@ -271,9 +279,6 @@ function App() {
           >
             {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
           </button>
-          <button className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors" title="设置">
-            <Settings className="w-4 h-4" />
-          </button>
         </div>
       </header>
 
@@ -283,7 +288,6 @@ function App() {
           /* 欢迎界面 */
           <div className="flex-1 flex items-center justify-center p-4">
             <div className="text-center space-y-4 max-w-lg">
-              <div className="text-5xl">👋</div>
               <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
                 欢迎使用 LogWhisper
               </h2>

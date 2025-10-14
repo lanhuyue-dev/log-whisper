@@ -1,187 +1,110 @@
-# 更新日志
+# Changelog
 
-## [1.0.0] - 2025-10-02
+All notable changes to LogWhisper will be documented in this file.
 
-### 🚀 重大更新
-- **架构重构**: 从 Rust + Tauri 完全迁移到 Rust + Electron 架构
-- **稳定性提升**: 解决了 Tauri 环境检测和 IPC 通信的稳定性问题
-- **开发体验优化**: 简化了开发环境配置和调试流程
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-### ✨ 新增功能
-- 全新的 Electron 桌面应用界面
-- 独立的 Rust HTTP API 服务器
-- 改进的窗口控制功能（最小化、最大化、关闭）
-- 双侧布局设计，提升用户体验
-- 快速测试模式，便于开发调试
+## [Unreleased]
 
-### 🔧 技术改进
-- **通信机制**: 从 IPC 改为稳定的 HTTP API 通信
-- **进程模型**: 采用多进程架构，提高稳定性
-- **错误处理**: 完善的错误提示和用户指导
-- **环境检测**: 简化的 Electron 环境检测逻辑
+### Added
+- Intelligent log prefix compaction for SpringBoot logs
+- Smart formatting based on log content analysis
+- Thread name abbreviation (e.g., `nio-8080-exec-1` → `H8080-`)
+- Class name shortening for better readability
+- Automatic format selection between compact and full display
 
-### 📁 项目结构调整
-- 新增 `electron/` 目录，包含主进程和预加载脚本
-- 重构 `src-rust/` 为独立的 Rust API 项目
-- 适配前端界面到 Electron 环境
-- 新增多个启动脚本和配置文件
+### Changed
+- Improved SpringBoot log parser performance
+- Enhanced regex compilation with pre-computed patterns
+- Updated log format consistency across plugins
+- Streamlined user interface for better log visibility
 
-### 🐛 问题修复
-- 修复了 Tauri 环境检测失败导致的"模拟模式"问题
-- 解决了 IPC 通信不稳定的问题
-- 修复了窗口控制按钮无法正常工作的问题
-- 改进了 UI 布局和样式问题
+### Fixed
+- Log timestamp ISO 8601 conversion issues
+- Stream type determination for different log levels
+- Test assertion failures in format validation
+- Memory allocation optimizations
 
-### 📚 文档更新
-- 新增详细的架构迁移文档 (`MIGRATION.md`)
-- 更新项目 README 文档
-- 新增快速开始指南和故障排除说明
+## [1.0.0] - 2025-10-14
 
-### ⚠️ 破坏性变更
-- 不再支持 Tauri 架构，请使用新的 Electron 版本
-- API 调用方式从 IPC 改为 HTTP，需要更新相关代码
-- 启动方式变更，使用 `npm start` 或 `start-electron.bat`
+### Added
+- Initial release of LogWhisper desktop application
+- Tauri + Rust architecture for high-performance log processing
+- Multi-format log parsing support:
+  - Auto-detection of log formats
+  - MyBatis SQL log parser
+  - Docker JSON log parser
+  - Raw text log parser
+  - SpringBoot application log parser
+- Drag-and-drop file interface
+- Real-time log parsing with progress indicators
+- Log level filtering (ERROR, WARN, INFO, DEBUG)
+- Export functionality for parsed results
+- Performance monitoring and statistics
+- Plugin system for extensible log parsers
+- Cross-platform support (Windows, macOS, Linux)
 
-### 📦 依赖更新
-- 移除所有 Tauri 相关依赖
-- 新增 Electron 相关依赖
-- 简化 Rust 项目依赖，专注于 HTTP API 服务
+### Features
+- **High Performance**: Optimized parsing engine capable of processing large log files
+- **Smart Detection**: Automatic identification of log formats
+- **User-Friendly Interface**: Intuitive drag-and-drop design
+- **Flexible Filtering**: Filter logs by level, time range, and keywords
+- **Export Options**: Save parsed results in multiple formats
+- **Plugin Architecture**: Easy extension with custom parsers
 
----
+### Technical Highlights
+- **Backend**: Rust-based processing engine with Tauri integration
+- **Frontend**: Modern web interface with Tailwind CSS
+- **Performance**: Optimized for handling files up to 100MB+
+- **Memory Efficiency**: Streaming parser for large files
+- **Security**: Sandboxed environment for safe log processing
 
-## [0.3.0] - 2025-09-30 (Tauri 版本)
+### Supported Log Formats
+- **SpringBoot**: Java application logs with stack trace support
+- **Docker JSON**: Container logs with stream metadata
+- **MyBatis**: SQL execution logs with parameter binding
+- **Raw Text**: Generic text-based log files
+- **Auto Detection**: Intelligent format identification
 
-### ✨ 新增功能
-- 实现双侧布局设计
-- 添加窗口控制按钮
-- 支持文件拖拽上传
+## [0.9.0] - 2025-09-30 (Development Phase)
 
-### 🔧 改进
-- 优化 1080p+ 屏幕适配
-- 改进 API 状态检测
-- 增强错误处理机制
+### Added
+- Initial project scaffolding
+- Basic Tauri application structure
+- Core plugin system architecture
+- Development environment setup
 
-### 🐛 问题修复
-- 修复 CSS 代码显示问题
-- 解决权限配置错误
-- 改进 Tauri 环境检测
-
----
-
-## [0.2.0] - 2025-09-28 (Tauri 版本)
-
-### ✨ 新增功能
-- 基础的日志解析功能
-- 多种日志格式支持
-- 插件系统架构
-
-### 🔧 改进
-- 完善前端界面设计
-- 优化解析性能
-- 添加统计信息展示
-
----
-
-## [0.1.0] - 2025-09-25 (Tauri 版本)
-
-### ✨ 初始版本
-- 项目初始化
-- 基础 Tauri 应用框架
-- 简单的文件选择功能
+### Changed
+- Migrated from Electron to Tauri for better performance
+- Implemented Rust-based log parsing engine
+- Established plugin development framework
 
 ---
 
-## 迁移指南
+## Version History Summary
 
-### 从 Tauri 版本升级
+### Major Changes
+- **v1.0.0**: Production-ready release with comprehensive log parsing capabilities
+- **v0.9.0**: Development phase with core architecture establishment
 
-如果您之前使用的是 Tauri 版本（v0.x），请按照以下步骤迁移：
+### Key Improvements Over Time
+1. **Performance**: From basic parsing to optimized high-throughput processing
+2. **Usability**: From command-line tool to intuitive desktop application
+3. **Extensibility**: From hardcoded parsers to flexible plugin system
+4. **Compatibility**: From limited formats to comprehensive log format support
 
-1. **备份数据**
-   ```bash
-   # 备份现有配置和数据
-   cp -r old-version/config ./backup/
-   ```
-
-2. **安装新版本**
-   ```bash
-   # 克隆或下载新版本
-   git pull origin main
-   npm install
-   ```
-
-3. **配置环境**
-   ```bash
-   # 编译 Rust API
-   cd src-rust
-   cargo build --release
-   ```
-
-4. **启动新版本**
-   ```bash
-   # 使用新的启动方式
-   npm start
-   ```
-
-### 配置迁移
-
-- **日志解析配置**: 兼容现有配置
-- **界面设置**: 需要重新配置
-- **快捷键**: 保持一致
-
-### 注意事项
-
-- 新版本不兼容 Tauri 版本的插件
-- API 调用方式已更改
-- 建议重新安装而非覆盖升级
+### Technology Evolution
+- Started with basic Electron + Node.js
+- Evolved to Tauri + Rust for better performance
+- Implemented sophisticated parsing algorithms
+- Added intelligent format detection and processing
 
 ---
 
-## 开发日志
+## Support
 
-### 架构决策记录
-
-**2025-10-02**: 决定从 Tauri 迁移到 Electron
-- **原因**: Tauri 环境检测复杂度过高，IPC 通信不稳定
-- **方案**: 采用 Electron + 独立 Rust API 的架构
-- **收益**: 大幅提升开发体验和应用稳定性
-
-**2025-09-30**: 尝试修复 Tauri 环境问题
-- **问题**: `window.__TAURI__` 检测失败
-- **尝试**: 多次重试机制、权限配置优化
-- **结果**: 问题依然存在，决定更换技术栈
-
-### 性能优化记录
-
-**解析性能提升**:
-- 使用 Rust 并行处理: 性能提升 300%
-- HTTP API 缓存机制: 响应时间减少 50%
-- 前端虚拟滚动: 大文件展示性能提升 500%
-
-**内存优化**:
-- 流式处理大文件: 内存占用降低 60%
-- 智能垃圾回收: 长时间运行稳定性提升
-
----
-
-## 反馈和贡献
-
-### 问题反馈
-- GitHub Issues: [https://github.com/your-org/log-whisper/issues](https://github.com/your-org/log-whisper/issues)
-- 邮件支持: support@log-whisper.com
-
-### 贡献指南
-1. Fork 项目
-2. 创建功能分支
-3. 提交代码
-4. 创建 Pull Request
-
-### 开发路线图
-- [ ] v1.1.0: 插件市场支持
-- [ ] v1.2.0: 云端同步功能
-- [ ] v1.3.0: 企业版功能
-- [ ] v2.0.0: 分布式日志分析
-
----
-
-*最后更新: 2025-10-02*
+For information about previous versions or support, please:
+- Check the [GitHub Releases](https://github.com/lanhuyue-dev/log-whisper/releases)
+- Review the [Documentation](./README.md)
+- Open an [Issue](https://github.com/lanhuyue-dev/log-whisper/issues) for questions

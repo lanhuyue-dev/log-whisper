@@ -291,9 +291,6 @@ function App() {
               <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
                 欢迎使用 LogWhisper
               </h2>
-              <p className="text-gray-600 dark:text-gray-400">
-                请点击「选择文件」或拖拽日志文件到此处开始分析
-              </p>
 
               {/* 拖拽区域 */}
               <div

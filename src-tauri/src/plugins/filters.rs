@@ -160,8 +160,10 @@ pub struct SpringBootFilter;
 
 impl SpringBootFilter {
     /// SpringBoot日志格式的正则表达式
-    /// 格式: 2024-01-15 14:30:25.123 [main] INFO com.example.App - Message
-    const LOG_PATTERN: &'static str = r"^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}[.,]\d{3})\s+\[([^\]]+)\]\s+([A-Z]+)\s+([^-]+?)\s+-\s+(.*)$";
+    /// 支持多种格式:
+    /// 1. 2024-01-15 14:30:25.123 [main] INFO com.example.App - Message (传统格式)
+    /// 2. 2025-10-15T07:40:55.169Z  INFO 1 --- [  EventHandler1] s.i.ProjectAttributeTemplateEventSpiImpl : Message (新格式)
+    const LOG_PATTERN: &'static str = r"^(\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}:\d{2}[.,]\d{3}(?:Z)?)\s+([A-Z]+)\s+(?:\d+\s+---\s+)?\[\s*([^\]]+)\s*\]\s+([^\s:]+)\s*:\s*(.*)$";
 }
 
 impl PluginFilter for SpringBootFilter {
@@ -178,15 +180,36 @@ impl PluginFilter for SpringBootFilter {
     }
 
     fn should_process(&self, context: &PluginChainContext) -> bool {
+        // 如果当前行列表为空，说明这是第一次处理，需要解析原始内容
+        if context.current_lines.is_empty() {
+            return true;
+        }
+
         // 检查是否有SpringBoot格式的日志行
         context.current_lines.iter().any(|line| {
             let content_lower = line.content.to_lowercase();
-            content_lower.contains("spring") ||
-            content_lower.contains("application.start") ||
-            content_lower.contains("springframework") ||
-            (line.content.starts_with(|c: char| c.is_ascii_digit()) &&
-             line.content.len() >= 10 &&
-             (line.content.contains('[') || line.content.contains(" INFO ") || line.content.contains(" ERROR ")))
+            // 检查新的日志格式特征: 2025-10-15T07:40:55.169Z  INFO 1 --- [thread] Class : Message
+            let has_new_format = line.content.starts_with(|c: char| c.is_ascii_digit()) &&
+                line.content.len() >= 20 &&
+                (line.content.contains("---") && line.content.contains('['));
+
+            // 检查传统格式特征
+            let has_traditional_format = (line.content.starts_with(|c: char| c.is_ascii_digit()) &&
+                line.content.len() >= 10 &&
+                (line.content.contains('[') || line.content.contains(" INFO ") || line.content.contains(" ERROR ")));
+
+            // 检查Spring相关关键字
+            let has_spring_keywords = content_lower.contains("spring") ||
+                content_lower.contains("application.start") ||
+                content_lower.contains("springframework");
+
+            // 检查标准日志级别
+            let has_log_levels = content_lower.contains("info") ||
+                content_lower.contains("error") ||
+                content_lower.contains("warn") ||
+                content_lower.contains("debug");
+
+            has_new_format || has_traditional_format || has_spring_keywords || has_log_levels
         })
     }
 
@@ -196,51 +219,115 @@ impl PluginFilter for SpringBootFilter {
         let regex = regex::Regex::new(Self::LOG_PATTERN)
             .map_err(|e| format!("SpringBoot正则表达式编译失败: {}", e))?;
 
-        let mut processed_lines = Vec::with_capacity(context.current_lines.len());
+        info!("🔍 SpringBoot正则表达式: {}", Self::LOG_PATTERN);
+
+        let lines_to_process = if context.current_lines.is_empty() {
+            // 第一次处理，从原始内容创建行列表
+            context.original_content.lines().enumerate().map(|(i, line)| {
+                LogLine {
+                    line_number: i + 1,
+                    content: line.to_string(),
+                    level: None,
+                    timestamp: None,
+                    formatted_content: None,
+                    metadata: HashMap::new(),
+                    processed_by: vec![],
+                }
+            }).collect()
+        } else {
+            // 后续处理，使用现有的行列表
+            context.current_lines.clone()
+        };
+
+        let mut processed_lines = Vec::with_capacity(lines_to_process.len());
         let mut processed_count = 0;
 
-        for mut line in context.current_lines.drain(..) {
-            if let Some(captures) = regex.captures(&line.content) {
+        for mut line in lines_to_process {
+            let trimmed = line.content.trim();
+
+            // 跳过空白行
+            if trimmed.is_empty() {
+                line.metadata.insert("skipped".to_string(), "empty_line".to_string());
+                processed_lines.push(line);
+                continue;
+            }
+
+            let content_copy = line.content.clone();
+            info!("🔍 尝试匹配行 {}: '{}'", line.line_number, content_copy);
+
+            if let Some(captures) = regex.captures(&content_copy) {
+                info!("✅ 匹配成功! 捕获组数量: {}", captures.len());
+                for (i, cap) in captures.iter().enumerate() {
+                    if let Some(group) = cap {
+                        info!("  捕获组 {}: '{}'", i, group.as_str());
+                    }
+                }
+
+                // 新格式的字段顺序: 时间戳、级别、线程名、类名、消息
                 // 提取时间戳
                 if let Some(timestamp) = captures.get(1) {
                     let normalized = self.normalize_timestamp(timestamp.as_str());
-                    line.timestamp = Some(normalized);
+                    line.timestamp = Some(normalized.clone());
+                    info!("  时间戳: {}", normalized);
                 }
 
-                // 提取线程名
-                if let Some(thread) = captures.get(2) {
-                    line.metadata.insert("thread".to_string(), thread.as_str().to_string());
-                }
-
-                // 提取并标准化日志级别
-                if let Some(level) = captures.get(3) {
+                // 提取并标准化日志级别 (捕获组2)
+                if let Some(level) = captures.get(2) {
                     let normalized_level = self.normalize_level(level.as_str());
                     line.level = Some(normalized_level.clone());
+                    info!("  日志级别: {} -> {}", level.as_str(), normalized_level);
 
                     // 根据级别确定stream类型
                     let stream_type = self.determine_stream_type(&normalized_level);
                     line.metadata.insert("stream".to_string(), stream_type.to_string());
                 }
 
-                // 提取类名
-                if let Some(logger) = captures.get(4) {
-                    line.metadata.insert("logger".to_string(), logger.as_str().to_string());
+                // 提取线程名 (捕获组3)
+                if let Some(thread) = captures.get(3) {
+                    line.metadata.insert("thread".to_string(), thread.as_str().to_string());
+                    info!("  线程名: {}", thread.as_str());
                 }
 
-                // 提取消息内容
+                // 提取类名 (捕获组4)
+                if let Some(logger) = captures.get(4) {
+                    line.metadata.insert("logger".to_string(), logger.as_str().to_string());
+                    info!("  类名: {}", logger.as_str());
+                }
+
+                // 提取消息内容 (捕获组5)
                 if let Some(message) = captures.get(5) {
                     line.content = message.as_str().to_string();
+                    info!("  消息: {}", message.as_str());
                 }
 
                 line.processed_by.push("springboot_filter".to_string());
                 processed_count += 1;
 
-                debug!("✅ SpringBoot解析成功: 行{} -> {}", line.line_number, line.content);
+                info!("✅ SpringBoot解析成功: 行{} -> {}", line.line_number, line.content);
             } else {
-                // 不匹配标准格式的行，可能是堆栈跟踪
-                line.metadata.insert("type".to_string(), "stacktrace".to_string());
-                line.metadata.insert("stream".to_string(), "stderr".to_string());
-                line.level = Some("ERROR".to_string());
+                info!("❌ 匹配失败，检查是否有其他特征...");
+
+                // 不匹配标准格式的行，可能是堆栈跟踪或其他内容
+                // 检查是否包含日志级别关键字，如果不包含，设为DEBUG
+                let content_lower = line.content.to_lowercase();
+                if content_lower.contains("error") || content_lower.contains("exception") {
+                    line.level = Some("ERROR".to_string());
+                    line.metadata.insert("stream".to_string(), "stderr".to_string());
+                    info!("  检测到ERROR关键字");
+                } else if content_lower.contains("warn") {
+                    line.level = Some("WARN".to_string());
+                    line.metadata.insert("stream".to_string(), "stdout".to_string());
+                    info!("  检测到WARN关键字");
+                } else if content_lower.contains("info") {
+                    line.level = Some("INFO".to_string());
+                    line.metadata.insert("stream".to_string(), "stdout".to_string());
+                    info!("  检测到INFO关键字");
+                } else {
+                    line.level = Some("DEBUG".to_string());
+                    line.metadata.insert("stream".to_string(), "stdout".to_string());
+                    info!("  设为DEBUG级别");
+                }
+                line.metadata.insert("type".to_string(), "unparsed".to_string());
             }
 
             processed_lines.push(line);
@@ -909,5 +996,37 @@ impl PluginFilter for ContentEnhancerFilter {
 
     fn can_handle(&self, _content: &str, _file_path: Option<&str>) -> bool {
         true // 可以处理任何内容，但会选择性增强
+    }
+}
+
+#[cfg(test)]
+mod springboot_tests {
+    #[test]
+    fn test_regex_pattern_directly() {
+        use regex::Regex;
+
+        let pattern = r"^(\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}:\d{2}[.,]\d{3}(?:Z)?)\s+([A-Z]+)\s+(?:\d+\s+---\s+)?\[\s*([^\]]+)\s*\]\s+([^\s:]+)\s*:\s*(.*)$";
+        let regex = Regex::new(pattern).unwrap();
+
+        let test_line = "2025-10-15T07:40:55.169Z  INFO 1 --- [  EventHandler1] s.i.ProjectAttributeTemplateEventSpiImpl : ProjectAttributeTemplateEventSpiImpl 收到事件，objectName:Document number:136";
+
+        if let Some(captures) = regex.captures(test_line) {
+            println!("✅ Regex匹配成功!");
+            println!("  捕获组数量: {}", captures.len());
+            for (i, cap) in captures.iter().enumerate() {
+                if let Some(group) = cap {
+                    println!("  捕获组 {}: '{}'", i, group.as_str());
+                }
+            }
+
+            assert_eq!(captures.len(), 6); // 0 + 5 capture groups
+            assert_eq!(captures.get(1).unwrap().as_str(), "2025-10-15T07:40:55.169Z");
+            assert_eq!(captures.get(2).unwrap().as_str(), "INFO");
+            assert_eq!(captures.get(3).unwrap().as_str(), "EventHandler1");
+            assert_eq!(captures.get(4).unwrap().as_str(), "s.i.ProjectAttributeTemplateEventSpiImpl");
+            assert_eq!(captures.get(5).unwrap().as_str(), "ProjectAttributeTemplateEventSpiImpl 收到事件，objectName:Document number:136");
+        } else {
+            panic!("❌ Regex匹配失败");
+        }
     }
 }

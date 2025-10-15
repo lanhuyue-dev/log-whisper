@@ -237,9 +237,9 @@ fn register_database_chain(manager: &mut PluginChainManager) {
     conditions.min_confidence = 0.7;
     chain.conditions = Some(conditions);
 
-    // 添加过滤器（MyBatis过滤器优先级更高）
+    // 添加过滤器 - 首先添加能处理原始内容的过滤器
+    chain.add_filter(Arc::new(SpringBootFilter)); // SpringBoot能处理原始内容
     chain.add_filter(Arc::new(MyBatisFilter));
-    chain.add_filter(Arc::new(SpringBootFilter));
     chain.add_filter(Arc::new(JavaLogFilter));
     chain.add_filter(Arc::new(ContentEnhancerFilter));
     chain.add_filter(Arc::new(JsonStructureFilter));
@@ -341,32 +341,35 @@ pub fn recommend_chain(content: &str, file_path: Option<&str>) -> String {
     let content_lower = content.to_lowercase();
     let _path_lower = file_path.unwrap_or("").to_lowercase();
 
-    // Docker容器日志特征
+    // Docker容器日志特征 (最高优先级)
     if content_lower.contains("{") &&
        content_lower.contains("\"log\"") &&
        content_lower.contains("\"stream\"") {
         return "docker".to_string();
     }
 
-    // 数据库SQL日志特征
+    // 数据库SQL日志特征 (高优先级)
     if content_lower.contains("preparing:") ||
        content_lower.contains("parameters:") ||
        content_lower.contains("==>") {
         return "database".to_string();
     }
 
-    // SpringBoot日志特征
+    // SpringBoot日志特征 (中高优先级) - 扩展检测范围
     if content_lower.contains("spring") ||
        content_lower.contains("application.start") ||
-       content_lower.contains("springframework") {
+       content_lower.contains("springframework") ||
+       content_lower.contains("com.example.") ||  // 常见的SpringBoot包名
+       content_lower.contains("http-nio-") ||     // Tomcat线程名
+       content_lower.contains("[main]") ||       // 主线程
+       (content_lower.contains("info") && content_lower.contains("error") && content_lower.contains("warn")) {
         return "springboot".to_string();
     }
 
-    // 微服务日志特征
-    if content_lower.contains("trace") ||
-       content_lower.contains("span") ||
-       content_lower.contains("request") ||
-       content_lower.contains("service") {
+    // 微服务日志特征 (中等优先级) - 更严格的检测条件
+    if (content_lower.contains("trace") && content_lower.contains("span")) ||
+       (content_lower.contains("request") && content_lower.contains("service")) ||
+       (content_lower.contains("correlation") && content_lower.contains("id")) {
         return "microservice".to_string();
     }
 

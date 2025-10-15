@@ -146,6 +146,113 @@ async fn health_check() -> Result<HealthResponse, String> {
     })
 }
 
+/// 获取文件信息用于分块处理
+///
+/// 分析日志文件的基本信息，包括总行数、文件大小等，
+/// 用于前端确定分块处理策略。
+///
+/// # 参数
+/// - `file_path`: 日志文件的路径
+///
+/// # Returns
+/// - `Ok(FileInfoResponse)`: 包含文件基本信息的响应
+/// - `Err(String)`: 获取文件信息失败时的错误信息
+#[tauri::command]
+async fn get_file_info(file_path: String) -> Result<FileInfoResponse, String> {
+    info!("🔍 [BACKEND_DEBUG] get_file_info 命令调用开始");
+    info!("📊 [BACKEND_DEBUG] 获取文件信息: {}", file_path);
+
+    // 文件存在性检查
+    let path_obj = std::path::Path::new(&file_path);
+    if !path_obj.exists() {
+        error!("❌ [BACKEND_DEBUG] 文件不存在: {}", file_path);
+        return Err(format!("文件不存在: {}", file_path));
+    }
+
+    if !path_obj.is_file() {
+        error!("❌ [BACKEND_DEBUG] 路径不是文件: {}", file_path);
+        return Err(format!("路径不是文件: {}", file_path));
+    }
+
+    // 获取文件元数据
+    let metadata = match std::fs::metadata(&file_path) {
+        Ok(meta) => {
+            info!("✅ [BACKEND_DEBUG] 文件元数据获取成功");
+            meta
+        },
+        Err(e) => {
+            error!("❌ [BACKEND_DEBUG] 获取文件元数据失败: {} - 错误: {}", file_path, e);
+            return Err(format!("获取文件元数据失败: {}", e));
+        }
+    };
+
+    let file_size = metadata.len();
+    info!("📏 [BACKEND_DEBUG] 文件大小: {} bytes ({} MB)", file_size, file_size / 1024 / 1024);
+
+    // 对于大文件，采样读取前1000行来估算总行数
+    let total_lines = if file_size > 10_000_000 { // 10MB以上的文件
+        info!("📏 [BACKEND_DEBUG] 大文件检测，采样估算行数");
+        match std::fs::read_to_string(&file_path) {
+            Ok(content) => {
+                let sample_lines: Vec<&str> = content.lines().take(1000).collect();
+                let sample_count = sample_lines.len();
+                if sample_count > 0 {
+                    // 基于采样估算总行数
+                    let avg_line_len = content.len() / sample_count;
+                    let estimated_lines = file_size as usize / avg_line_len;
+                    info!("📊 [BACKEND_DEBUG] 估算总行数: {} (基于{}行采样)", estimated_lines, sample_count);
+                    estimated_lines
+                } else {
+                    warn!("⚠️ [BACKEND_DEBUG] 文件内容为空，无法估算行数");
+                    0
+                }
+            }
+            Err(e) => {
+                warn!("⚠️ [BACKEND_DEBUG] 无法读取文件内容进行行数估算: {}", e);
+                0
+            }
+        }
+    } else {
+        // 小文件直接计算准确行数
+        info!("📏 [BACKEND_DEBUG] 小文件直接计算行数");
+        match std::fs::read_to_string(&file_path) {
+            Ok(content) => {
+                let lines = content.lines().count();
+                info!("📊 [BACKEND_DEBUG] 准确行数统计: {} 行", lines);
+                lines
+            }
+            Err(e) => {
+                warn!("⚠️ [BACKEND_DEBUG] 无法读取文件内容: {}", e);
+                0
+            }
+        }
+    };
+
+    // 推荐分块大小
+    let recommended_chunk_size = if total_lines > 100_000 {
+        5000 // 超大文件
+    } else if total_lines > 10_000 {
+        2000 // 大文件
+    } else if total_lines > 1000 {
+        1000 // 中等文件
+    } else {
+        total_lines // 小文件不分块
+    };
+
+    let is_large_file = file_size > 50_000_000; // 50MB以上认为是大文件
+
+    let response = FileInfoResponse {
+        file_path: file_path.clone(),
+        file_size,
+        total_lines,
+        recommended_chunk_size,
+        is_large_file,
+    };
+
+    info!("✅ [BACKEND_DEBUG] get_file_info 命令完成: {:?}", response);
+    Ok(response)
+}
+
 /// 获取可用的日志解析插件列表
 ///
 /// 返回当前系统中所有可用的日志解析插件信息，
@@ -216,45 +323,46 @@ async fn get_plugins() -> Result<PluginsResponse, String> {
 async fn parse_log(request: ParseRequest, state: tauri::State<'_, AppState>) -> Result<ParseResponse, String> {
     let start_time = std::time::Instant::now();
 
-    info!("🔍 收到日志解析请求: {:?}", request);
-    debug!("开始性能计时");
+    info!("🚀 [BACKEND_DEBUG] parse_log 命令调用开始");
+    info!("📥 [BACKEND_DEBUG] 收到日志解析请求: {:?}", request);
+    debug!("⏱️ [BACKEND_DEBUG] 开始性能计时");
 
     // 第一步：确定内容来源
     // 支持两种模式：文件路径模式（从磁盘读取）和内容传输模式（直接传入内容）
     let content = if let Some(file_path) = &request.file_path {
         // 文件路径模式：从指定的文件路径读取日志内容
-        info!("📁 使用文件路径模式: {}", file_path);
+        info!("📁 [BACKEND_DEBUG] 使用文件路径模式: {}", file_path);
 
         // 文件存在性检查：确保文件可访问
         if !std::path::Path::new(file_path).exists() {
-            error!("❌ 文件不存在: {}", file_path);
+            error!("❌ [BACKEND_DEBUG] 文件不存在: {}", file_path);
             return Ok(create_error_response("文件不存在", file_path));
         }
 
         // 文件类型检查：确保是普通文件而非目录
         if !std::path::Path::new(file_path).is_file() {
-            error!("❌ 路径不是文件: {}", file_path);
+            error!("❌ [BACKEND_DEBUG] 路径不是文件: {}", file_path);
             return Ok(create_error_response("路径不是文件", file_path));
         }
 
         // 文件读取：安全地读取文件内容
         match std::fs::read_to_string(file_path) {
             Ok(content) => {
-                info!("✅ 文件读取成功，大小: {} bytes", content.len());
+                info!("✅ [BACKEND_DEBUG] 文件读取成功，大小: {} bytes", content.len());
                 content
             }
             Err(e) => {
-                error!("❌ 读取文件失败: {} - 错误: {}", file_path, e);
+                error!("❌ [BACKEND_DEBUG] 读取文件失败: {} - 错误: {}", file_path, e);
                 return Ok(create_error_response(&format!("读取文件失败: {}", e), file_path));
             }
         }
     } else if let Some(content) = &request.content {
         // 内容传输模式：直接使用传入的日志内容
-        info!("📝 使用内容传输模式，大小: {} bytes", content.len());
+        info!("📝 [BACKEND_DEBUG] 使用内容传输模式，大小: {} bytes", content.len());
         content.clone()
     } else {
         // 错误处理：既没有文件路径也没有内容
-        error!("❌ 请求中既没有文件路径也没有内容");
+        error!("❌ [BACKEND_DEBUG] 请求中既没有文件路径也没有内容");
         return Ok(ParseResponse {
             success: false,
             entries: vec![],
@@ -275,12 +383,12 @@ async fn parse_log(request: ParseRequest, state: tauri::State<'_, AppState>) -> 
     let lines: Vec<&str> = content.lines().filter(|line| !line.trim().is_empty()).collect();
     let total_lines = lines.len();
 
+    info!("📊 [BACKEND_DEBUG] 日志预处理完成：{} 行有效内容", total_lines);
+
     if total_lines == 0 {
-        warn!("⚠️ 日志内容为空或只包含空行");
+        warn!("⚠️ [BACKEND_DEBUG] 日志内容为空或只包含空行");
         return Ok(create_empty_response());
     }
-
-    info!("📊 日志预处理完成：{} 行有效内容", total_lines);
 
     // 第三步：确定处理策略（分块 vs 全量处理）
     // 根据文件大小和用户请求确定使用分块处理还是全量处理
@@ -292,18 +400,18 @@ async fn parse_log(request: ParseRequest, state: tauri::State<'_, AppState>) -> 
     // - 小文件总是使用全量处理以获得最佳解析效果
     let should_chunk = total_lines > chunk_size && request.chunk_size.is_some();
 
-    debug!("📏 分块处理判断: total_lines={}, chunk_size={}, chunk_size_requested={}, should_chunk={}",
+    debug!("📏 [BACKEND_DEBUG] 分块处理判断: total_lines={}, chunk_size={}, chunk_size_requested={}, should_chunk={}",
          total_lines, chunk_size, request.chunk_size.is_some(), should_chunk);
 
     if should_chunk {
         // ==================== 分块处理模式 ====================
-        info!("🔧 启用分块处理模式：第{}块，每块{}行", chunk_index + 1, chunk_size);
+        info!("🔧 [BACKEND_DEBUG] 启用分块处理模式：第{}块，每块{}行", chunk_index + 1, chunk_size);
 
         // 计算当前块的索引范围
         let start_index = chunk_index * chunk_size;
         let end_index = std::cmp::min(start_index + chunk_size, total_lines);
 
-        debug!("分块范围: 第{}-{}行（共{}行）", start_index + 1, end_index, total_lines);
+        debug!("📏 [BACKEND_DEBUG] 分块范围: 第{}-{}行（共{}行）", start_index + 1, end_index, total_lines);
 
         // 提取当前块的日志行
         let chunk_entries: Vec<LogEntry> = lines.iter()
@@ -321,15 +429,17 @@ async fn parse_log(request: ParseRequest, state: tauri::State<'_, AppState>) -> 
             })
             .collect();
 
+        info!("📊 [BACKEND_DEBUG] 原始分块条目数: {}", chunk_entries.len());
+
         // 使用插件系统增强分块处理
         let processed_entries = match process_logs_with_plugin_system(&chunk_entries, &state.plugin_manager).await {
             Ok(entries) => {
-                info!("✅ 分块插件处理成功: {} -> {} 条目", chunk_entries.len(), entries.len());
+                info!("✅ [BACKEND_DEBUG] 分块插件处理成功: {} -> {} 条目", chunk_entries.len(), entries.len());
                 entries
             }
             Err(e) => {
-                error!("❌ 分块插件系统处理失败: {}", e);
-                warn!("🔄 回退到通用解析器");
+                error!("❌ [BACKEND_DEBUG] 分块插件系统处理失败: {}", e);
+                warn!("🔄 [BACKEND_DEBUG] 回退到通用解析器");
                 chunk_entries
             }
         };
@@ -355,17 +465,20 @@ async fn parse_log(request: ParseRequest, state: tauri::State<'_, AppState>) -> 
             has_more,
         };
 
-        info!("📦 分块解析完成: 第{}/{}块，{}条目，耗时: {}ms",
+        info!("📦 [BACKEND_DEBUG] 分块解析完成: 第{}/{}块，{}条目，耗时: {}ms",
               chunk_index + 1, total_chunks, entries.len(), parse_time);
 
-        return Ok(ParseResponse {
+        let response = ParseResponse {
             success: true,
             entries,
             stats,
             chunk_info: Some(chunk_info),
             error: None,
             detected_format: None, // 分块处理时不做格式检测以提高性能
-        });
+        };
+
+        info!("✅ [BACKEND_DEBUG] 分块解析响应构建完成，条目数: {}", response.entries.len());
+        return Ok(response);
     }
 
     // ==================== 全量处理模式 ====================
@@ -1297,9 +1410,52 @@ struct ThemeUpdateRequest {
     font_family: Option<String>,
 }
 
+/// 文件信息响应结构
+///
+/// 包含日志文件的基本信息，用于前端确定分块处理策略。
+///
+/// # 字段说明
+/// - file_path: 文件路径
+/// - file_size: 文件大小（字节）
+/// - total_lines: 总行数（估算值）
+/// - recommended_chunk_size: 推荐的分块大小
+/// - is_large_file: 是否为大文件
+#[derive(Debug, Serialize, Deserialize)]
+struct FileInfoResponse {
+    /// 文件路径
+    file_path: String,
+
+    /// 文件大小（字节）
+    file_size: u64,
+
+    /// 总行数（大文件为估算值）
+    total_lines: usize,
+
+    /// 推荐的分块大小（行数）
+    recommended_chunk_size: usize,
+
+    /// 是否为大文件（>50MB）
+    is_large_file: bool,
+}
+
 // ============================================================================
 // 性能优化辅助函数
 // ============================================================================
+
+use once_cell::sync::Lazy;
+use regex::Regex;
+
+// 预编译的正则表达式，避免重复编译
+static TIMESTAMP_PATTERNS: Lazy<Vec<Regex>> = Lazy::new(|| {
+    vec![
+        // ISO 8601 标准格式
+        Regex::new(r"\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}:\d{2}").unwrap(),
+        // 美式日期格式
+        Regex::new(r"\d{2}/\d{2}/\d{4}\s+\d{2}:\d{2}:\d{2}").unwrap(),
+        // 欧式日期格式
+        Regex::new(r"\d{2}-\d{2}-\d{4}\s+\d{2}:\d{2}:\d{2}").unwrap(),
+    ]
+});
 
 
 /// 使用插件系统处理日志条目
@@ -1475,9 +1631,9 @@ fn detect_log_format(lines: &[&str]) -> String {
     "Unknown".to_string()
 }
 
-/// 从日志行中提取时间戳
+/// 从日志行中提取时间戳 (优化版本)
 ///
-/// 使用正则表达式从日志行中提取符合常见格式的时间戳。
+/// 使用预编译的正则表达式从日志行中提取符合常见格式的时间戳。
 /// 支持多种时间戳格式，包括ISO 8601和其他常见格式。
 ///
 /// # 支持的时间戳格式
@@ -1492,43 +1648,36 @@ fn detect_log_format(lines: &[&str]) -> String {
 /// # Returns
 /// - `Option<String>`: 找到时间戳时返回Some，否则返回None
 ///
-/// # 性能考虑
-/// - 按常见程度排序正则表达式模式
-/// - 使用非贪婪匹配提高性能
+/// # 性能优化
+/// - 使用预编译的正则表达式，避免重复编译开销
+/// - 按常见程度排序，优先匹配最常见格式
 /// - 一旦匹配立即返回，避免不必要的检查
+/// - 仅在调试模式下输出详细日志
 fn extract_timestamp(line: &str) -> Option<String> {
-    debug!("🕐 尝试从日志行提取时间戳: {}",
-          if line.len() > 50 { format!("{}...", &line[..50]) } else { line.to_string() });
+    // 仅在调试模式下输出详细日志，减少大文件处理时的性能开销
+    if log::log_enabled!(log::Level::Debug) {
+        debug!("🕐 尝试从日志行提取时间戳: {}",
+              if line.len() > 50 { format!("{}...", &line[..50]) } else { line.to_string() });
+    }
 
-    use regex::Regex;
-
-    // 常见的时间戳格式，按使用频率排序
-    let patterns = vec![
-        // ISO 8601 标准格式 (最常见)
-        r"\d{4}-\d{2}-\d{2}[\s\T]\d{2}:\d{2}:\d{2}",
-        // 美式日期格式
-        r"\d{2}/\d{2}/\d{4}\s+\d{2}:\d{2}:\d{2}",
-        // 欧式日期格式
-        r"\d{2}-\d{2}-\d{4}\s+\d{2}:\d{2}:\d{2}",
-    ];
-
-    for (index, pattern) in patterns.iter().enumerate() {
-        if let Ok(re) = Regex::new(pattern) {
-            if let Some(captures) = re.find(line) {
-                let timestamp = captures.as_str().to_string();
+    // 使用预编译的正则表达式，避免重复编译
+    for (index, re) in TIMESTAMP_PATTERNS.iter().enumerate() {
+        if let Some(captures) = re.find(line) {
+            let timestamp = captures.as_str().to_string();
+            if log::log_enabled!(log::Level::Debug) {
                 debug!("✅ 时间戳提取成功 (模式{}): {}", index + 1, timestamp);
-                return Some(timestamp);
             }
-        } else {
-            warn!("⚠️ 正则表达式编译失败: {}", pattern);
+            return Some(timestamp);
         }
     }
 
-    debug!("❌ 未能从日志行提取时间戳");
+    if log::log_enabled!(log::Level::Debug) {
+        debug!("❌ 未能从日志行提取时间戳");
+    }
     None
 }
 
-/// 从日志行中提取日志级别
+/// 从日志行中提取日志级别 (优化版本)
 ///
 /// 通过关键词匹配识别日志行中的日志级别信息。
 /// 支持标准日志级别和常见的关键词变体。
@@ -1554,38 +1703,82 @@ fn extract_timestamp(line: &str) -> Option<String> {
 /// - `Option<String>`: 识别到的日志级别，始终返回Some值
 ///
 /// # 性能优化
-/// - 使用单个toLowerCase()调用避免重复转换
+/// - 避免不必要的字符串分配
 /// - 按匹配概率排序关键词顺序
 /// - 早期返回提高匹配效率
+/// - 减少大文件处理时的调试日志输出
 fn extract_log_level(line: &str) -> Option<String> {
-    debug!("🔍 尝试从日志行提取级别: {}",
-          if line.len() > 30 { format!("{}...", &line[..30]) } else { line.to_string() });
+    // 仅在调试模式下输出详细日志，减少大文件处理时的性能开销
+    if log::log_enabled!(log::Level::Debug) {
+        debug!("🔍 尝试从日志行提取级别: {}",
+              if line.len() > 30 { format!("{}...", &line[..30]) } else { line.to_string() });
+    }
 
-    // 转换为小写以实现不区分大小写的匹配
     let line_lower = line.to_lowercase();
 
-    // 按重要性和常见程度排序检查级别
-    let level = if line_lower.contains("error") || line_lower.contains("err") {
-        debug!("✅ 检测到ERROR级别");
-        "ERROR".to_string()
-    } else if line_lower.contains("warn") || line_lower.contains("warning") {
-        debug!("✅ 检测到WARN级别");
-        "WARN".to_string()
-    } else if line_lower.contains("info") {
-        debug!("✅ 检测到INFO级别");
-        "INFO".to_string()
-    } else if line_lower.contains("debug") {
-        debug!("✅ 检测到DEBUG级别");
-        "DEBUG".to_string()
-    } else if line_lower.contains("trace") {
-        debug!("✅ 检测到TRACE级别");
-        "TRACE".to_string()
+    // 使用更精确的日志级别检测，避免误判
+    let level = if contains_exact_word(&line_lower, "error") || contains_exact_word(&line_lower, "err") {
+        if log::log_enabled!(log::Level::Debug) {
+            debug!("✅ 检测到ERROR级别");
+        }
+        "ERROR"
+    } else if contains_exact_word(&line_lower, "warn") || contains_exact_word(&line_lower, "warning") {
+        if log::log_enabled!(log::Level::Debug) {
+            debug!("✅ 检测到WARN级别");
+        }
+        "WARN"
+    } else if contains_exact_word(&line_lower, "info") {
+        if log::log_enabled!(log::Level::Debug) {
+            debug!("✅ 检测到INFO级别");
+        }
+        "INFO"
+    } else if contains_exact_word(&line_lower, "debug") {
+        if log::log_enabled!(log::Level::Debug) {
+            debug!("✅ 检测到DEBUG级别");
+        }
+        "DEBUG"
+    } else if contains_exact_word(&line_lower, "trace") {
+        if log::log_enabled!(log::Level::Debug) {
+            debug!("✅ 检测到TRACE级别");
+        }
+        "TRACE"
     } else {
-        debug!("❓ 未能识别日志级别，使用默认INFO级别");
-        "INFO".to_string() // 默认级别
+        if log::log_enabled!(log::Level::Debug) {
+            debug!("❓ 未能识别日志级别，使用默认INFO级别");
+        }
+        "INFO" // 默认级别
     };
 
-    Some(level)
+    Some(level.to_string())
+}
+
+/// 检查是否包含完整的单词，避免部分匹配导致的误判
+///
+/// 例如：避免将 "serial" 中的 "err" 识别为错误级别
+fn contains_exact_word(text: &str, word: &str) -> bool {
+    // 如果是简单的日志级别单词，可以直接包含检查
+    if matches!(word, "info" | "debug" | "trace") {
+        return text.contains(word);
+    }
+
+    // 对于可能造成误判的单词，使用更严格的检查
+    let mut start = 0;
+    while let Some(pos) = text[start..].find(word) {
+        let actual_pos = start + pos;
+        let word_end = actual_pos + word.len();
+
+        // 检查单词边界
+        let is_word_start = actual_pos == 0 || !text.chars().nth(actual_pos - 1).unwrap_or(' ').is_alphanumeric();
+        let is_word_end = word_end >= text.len() || !text.chars().nth(word_end).unwrap_or(' ').is_alphanumeric();
+
+        if is_word_start && is_word_end {
+            return true;
+        }
+
+        start = actual_pos + 1;
+    }
+
+    false
 }
 
 /// LogWhisper应用程序主入口函数
@@ -1653,6 +1846,7 @@ async fn main() {
 
             // 插件和解析命令
             get_plugins,
+            get_file_info,
             parse_log,
             test_parse,
 

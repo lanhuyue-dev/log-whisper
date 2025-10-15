@@ -1,11 +1,8 @@
 import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
 import { resolve } from 'path'
 
 // https://vitejs.dev/config/
 export default defineConfig({
-  plugins: [react()],
-
   // 指定项目根目录
   root: '.',
 
@@ -22,7 +19,7 @@ export default defineConfig({
 
   // 开发服务器配置
   server: {
-    port: 3005,
+    port: 3000,
     strictPort: true
   },
 

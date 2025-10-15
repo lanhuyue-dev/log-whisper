@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { invoke } from '@tauri-apps/api/tauri'
+import { open } from '@tauri-apps/api/dialog'
 import { FileText, Upload, Moon, Sun, Filter, Search, X } from 'lucide-react'
 
 interface LogEntry {
@@ -40,6 +41,14 @@ interface PluginsResponse {
   plugins: Plugin[]
 }
 
+interface FileInfoResponse {
+  file_path: string
+  file_size: number
+  total_lines: number
+  recommended_chunk_size: number
+  is_large_file: boolean
+}
+
 function App() {
   const [darkMode, setDarkMode] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -51,6 +60,12 @@ function App() {
   const [isDragging, setIsDragging] = useState(false)
   const [stats, setStats] = useState<ParseResponse['stats'] | null>(null)
   const [fileName, setFileName] = useState<string>('')
+  const [filePath, setFilePath] = useState<string>('')
+  const [fileInfo, setFileInfo] = useState<FileInfoResponse | null>(null)
+  const [currentChunk, setCurrentChunk] = useState(0)
+  const [totalChunks, setTotalChunks] = useState(0)
+  const [isLoadingChunk, setIsLoadingChunk] = useState(false)
+  const [chunkProgress, setChunkProgress] = useState(0)
 
   // 初始化应用
   useEffect(() => {
@@ -112,19 +127,171 @@ function App() {
     try {
       setFileName(file.name)
       setLoading(true)
+      resetApp()
 
-      // 读取文件内容
-      const content = await readFileContent(file)
-      setFileContent(content)
-
-      // 解析日志
-      await parseLogContent(content)
+      // 对于小文件，使用内容模式
+      if (file.size <= 50 * 1024 * 1024) { // 50MB以下使用内容模式
+        await processWholeFile(file)
+      } else {
+        // 大文件提示使用文件选择对话框
+        alert('大文件请使用"选择文件"按钮而不是拖拽，以获得更好的性能')
+      }
 
     } catch (error) {
       console.error('文件处理失败:', error)
     } finally {
       setLoading(false)
     }
+  }
+
+  // 处理文件选择对话框
+  const handleFileSelectDialog = async () => {
+    try {
+      console.log('🚀 [DEBUG] handleFileSelectDialog 开始执行')
+      setLoading(true)
+      resetApp()
+
+      // 打开文件选择对话框
+      console.log('📂 [DEBUG] 准备打开文件选择对话框')
+      const selected = await open({
+        multiple: false,
+        filters: [{
+          name: '日志文件',
+          extensions: ['log', 'txt', 'json', 'csv']
+        }]
+      })
+      console.log('📂 [DEBUG] 文件选择结果:', selected)
+
+      if (selected && typeof selected === 'string') {
+        // 使用文件路径模式
+        console.log('📁 [DEBUG] 使用文件路径模式:', selected)
+        setFilePath(selected)
+        setFileName(selected.split('\\').pop() || selected.split('/').pop() || selected)
+
+        // 获取文件信息
+        console.log('📊 [DEBUG] 开始获取文件信息')
+        const fileInfo = await getFileInfo(selected)
+        console.log('📊 [DEBUG] 文件信息获取结果:', fileInfo)
+        setFileInfo(fileInfo)
+
+        console.log('🔄 [DEBUG] 开始分块处理')
+        await processFileInChunks(selected, fileInfo)
+      } else {
+        console.log('❌ [DEBUG] 用户取消选择文件或选择无效')
+      }
+
+    } catch (error) {
+      console.error('❌ [DEBUG] 文件选择失败:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+
+  // 获取文件信息
+  const getFileInfo = async (filePath: string): Promise<FileInfoResponse> => {
+    try {
+      console.log('🔍 [DEBUG] 调用 get_file_info 命令，文件路径:', filePath)
+      const response = await invoke<FileInfoResponse>('get_file_info', { filePath })
+      console.log('✅ [DEBUG] get_file_info 响应:', response)
+      return response
+    } catch (error) {
+      console.error('❌ [DEBUG] 获取文件信息失败:', error)
+      // 返回默认值
+      return {
+        file_path: filePath,
+        file_size: 0,
+        total_lines: 0,
+        recommended_chunk_size: 1000,
+        is_large_file: false
+      }
+    }
+  }
+
+  // 处理整个文件（小文件）
+  const processWholeFile = async (file: File) => {
+    const content = await readFileContent(file)
+    setFileContent(content)
+    await parseLogContent(content)
+  }
+
+  // 分块处理文件
+  const processFileInChunks = async (filePath: string, fileInfo: FileInfoResponse) => {
+    console.log('🔄 [DEBUG] 开始分块处理文件')
+    console.log('📊 [DEBUG] 文件信息:', fileInfo)
+
+    const totalChunks = Math.ceil(fileInfo.total_lines / fileInfo.recommended_chunk_size)
+    console.log('📊 [DEBUG] 计算分块信息:', { totalChunks, totalLines: fileInfo.total_lines, chunkSize: fileInfo.recommended_chunk_size })
+
+    setTotalChunks(totalChunks)
+    setCurrentChunk(0)
+    setParsedLogs([])
+
+    // 处理第一块
+    console.log('🔄 [DEBUG] 开始加载第一块')
+    await loadChunk(filePath, 0, fileInfo.recommended_chunk_size)
+    console.log('✅ [DEBUG] 第一块加载完成')
+  }
+
+  // 加载指定块
+  const loadChunk = async (filePath: string, chunkIndex: number, chunkSize: number) => {
+    console.log(`📦 [DEBUG] 开始加载第 ${chunkIndex} 块，大小: ${chunkSize}`)
+    setIsLoadingChunk(true)
+    setChunkProgress(Math.round((chunkIndex / totalChunks) * 100))
+
+    try {
+      const request = {
+        file_path: filePath,
+        chunk_size: chunkSize,
+        chunk_index: chunkIndex,
+        plugin: 'auto'
+      }
+      console.log('📤 [DEBUG] 发送解析请求:', request)
+
+      const response = await invoke<ParseResponse>('parse_log', { request })
+      console.log('📥 [DEBUG] 解析响应:', response)
+
+      if (response.success) {
+        console.log(`✅ [DEBUG] 第 ${chunkIndex} 块解析成功，条目数: ${response.entries.length}`)
+
+        // 将新块的数据追加到现有数据
+        setParsedLogs(prev => {
+          const newLogs = [...prev, ...response.entries]
+          console.log(`📊 [DEBUG] 日志条目更新: ${prev.length} -> ${newLogs.length}`)
+          return newLogs
+        })
+        setStats(response.stats)
+
+        // 更新分块信息
+        if (response.chunk_info) {
+          console.log('📊 [DEBUG] 分块信息:', response.chunk_info)
+          setTotalChunks(response.chunk_info.total_chunks)
+          setCurrentChunk(response.chunk_info.current_chunk)
+
+          // 如果还有更多块，自动加载下一块
+          if (response.chunk_info.has_more && chunkIndex < 10) { // 限制前10块
+            console.log(`🔄 [DEBUG] 自动加载下一块: ${chunkIndex + 1}`)
+            setTimeout(() => {
+              loadChunk(filePath, chunkIndex + 1, chunkSize)
+            }, 100)
+          }
+        }
+      } else {
+        console.error('❌ [DEBUG] 分块解析失败:', response.error)
+      }
+    } catch (error) {
+      console.error('❌ [DEBUG] 分块解析异常:', error)
+    } finally {
+      setIsLoadingChunk(false)
+      setChunkProgress(100)
+    }
+  }
+
+  // 加载更多块
+  const loadMoreChunks = async () => {
+    if (!filePath || !fileInfo || currentChunk >= totalChunks - 1) return
+
+    await loadChunk(filePath, currentChunk + 1, fileInfo.recommended_chunk_size)
   }
 
   // 读取文件内容
@@ -197,12 +364,21 @@ function App() {
 
   })
 
+  // 添加日志渲染调试信息
+  console.log(`🎨 [DEBUG] 渲染状态: 总日志=${parsedLogs.length}, 过滤后=${filteredLogs.length}, 过滤器=${selectedFilter}, 搜索词=${searchTerm}`)
+
   // 重置应用状态
   const resetApp = () => {
     setFileContent('')
     setParsedLogs([])
     setStats(null)
     setFileName('')
+    setFilePath('')
+    setFileInfo(null)
+    setCurrentChunk(0)
+    setTotalChunks(0)
+    setIsLoadingChunk(false)
+    setChunkProgress(0)
     setSearchTerm('')
     setSelectedFilter('all')
   }
@@ -233,16 +409,13 @@ function App() {
 
           {/* 文件操作 */}
           <div className="flex items-center space-x-2">
-            <label className="btn-primary cursor-pointer inline-flex items-center space-x-1">
+            <button
+              onClick={handleFileSelectDialog}
+              className="btn-primary inline-flex items-center space-x-1"
+            >
               <Upload className="w-4 h-4" />
               <span>选择文件</span>
-              <input
-                type="file"
-                accept=".log,.txt,.json,.csv"
-                className="hidden"
-                onChange={(e) => e.target.files?.[0] && handleFileSelect(e.target.files[0])}
-              />
-            </label>
+            </button>
           </div>
         </div>
 
@@ -340,18 +513,6 @@ function App() {
                       <span className="text-gray-600 dark:text-gray-400">总行数:</span>
                       <span className="text-gray-900 dark:text-white">{stats.total_lines}</span>
                     </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-600 dark:text-gray-400">解析成功:</span>
-                      <span className="text-green-600">{stats.success_lines}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-600 dark:text-gray-400">解析失败:</span>
-                      <span className="text-red-600">{stats.error_lines}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-600 dark:text-gray-400">解析时间:</span>
-                      <span className="text-gray-900 dark:text-white">{stats.parse_time_ms}ms</span>
-                    </div>
                   </div>
                 </div>
               )}
@@ -359,7 +520,7 @@ function App() {
 
             {/* 日志内容区 */}
             <div className="flex-1 flex flex-col">
-              {/* 文件信息 */}
+              {/* 文件信息和分块进度 */}
               <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 py-2">
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-gray-600 dark:text-gray-400">
@@ -369,19 +530,43 @@ function App() {
                     显示 {filteredLogs.length} / {parsedLogs.length} 条日志
                   </span>
                 </div>
+
+                {/* 分块处理进度 */}
+                {(fileInfo?.is_large_file || totalChunks > 1) && (
+                  <div className="mt-2 space-y-1">
+                    <div className="flex items-center justify-between text-xs text-gray-600 dark:text-gray-400">
+                      <span>分块加载进度: {currentChunk + 1} / {totalChunks}</span>
+                      <span>{chunkProgress}%</span>
+                    </div>
+                    <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-1.5">
+                      <div
+                        className="bg-blue-600 h-1.5 rounded-full transition-all duration-300"
+                        style={{ width: `${chunkProgress}%` }}
+                      ></div>
+                    </div>
+                    {fileInfo && (
+                      <div className="text-xs text-gray-500 dark:text-gray-500">
+                        文件大小: {(fileInfo.file_size / 1024 / 1024).toFixed(2)} MB |
+                        总行数: {fileInfo.total_lines.toLocaleString()} |
+                        块大小: {fileInfo.recommended_chunk_size} 行
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
-              {/* 日志内容 */}
-              <div className="flex-1 overflow-y-auto bg-white dark:bg-gray-900">
-                <div className="font-mono text-sm">
+              {/* 日志内容 - 移除 overflow-x-hidden 以显示水平滚动条 */}
+              <div className="flex-1 overflow-auto bg-white dark:bg-gray-900">
+                <div className="font-mono text-sm" style={{ minWidth: 'fit-content' }}>
                   {filteredLogs.map((log) => (
                     <div
                       key={log.line_number}
                       className={`log-line ${
                         log.level ? log.level.toLowerCase() : ''
                       }`}
+                      style={{ whiteSpace: 'nowrap', minWidth: '100%' }}
                     >
-                      <div className="flex items-start space-x-3">
+                      <div className="flex items-start space-x-3" style={{ minWidth: '100%' }}>
                         <span className="text-gray-500 dark:text-gray-500 text-xs w-12 flex-shrink-0">
                           {log.line_number}
                         </span>
@@ -409,24 +594,34 @@ function App() {
                     </div>
                   ))}
                 </div>
+
+                {/* 加载更多按钮 */}
+                {fileInfo?.is_large_file && currentChunk < totalChunks - 1 && !isLoadingChunk && (
+                  <div className="sticky bottom-0 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 p-4">
+                    <button
+                      onClick={loadMoreChunks}
+                      className="w-full py-2 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors flex items-center justify-center space-x-2"
+                    >
+                      <span>加载更多日志</span>
+                      <span className="text-sm opacity-75">({totalChunks - currentChunk - 1} 块剩余)</span>
+                    </button>
+                  </div>
+                )}
+
+                {/* 加载中的指示器 */}
+                {isLoadingChunk && (
+                  <div className="sticky bottom-0 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 p-4">
+                    <div className="flex items-center justify-center space-x-2">
+                      <div className="w-4 h-4 border-2 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
+                      <span className="text-sm text-gray-600 dark:text-gray-400">正在加载分块 {currentChunk + 1} / {totalChunks}...</span>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>
         )}
       </main>
-
-      {/* 状态栏 */}
-      <footer className="status-bar">
-        <div className="flex items-center justify-between w-full">
-          <div className="flex items-center space-x-4">
-            <span>行 {filteredLogs.length}/{stats?.total_lines || 0}</span>
-            {searchTerm && <span>搜索: {filteredLogs.length} 处匹配</span>}
-          </div>
-          <div className="flex items-center space-x-4">
-            {stats && <span>解析: {stats.parse_time_ms}ms</span>}
-          </div>
-        </div>
-      </footer>
     </div>
   )
 }

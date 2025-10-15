@@ -31,7 +31,8 @@
       "Bash(taskkill:*)",
       "Bash(TASKKILL:*)",
       "Bash(powershell:*)",
-      "Bash(npm run tauri:dev:static:*)"
+      "Bash(npm run tauri:dev:static:*)",
+      "Bash(cmd:*)"
     ],
     "deny": [],
     "ask": []

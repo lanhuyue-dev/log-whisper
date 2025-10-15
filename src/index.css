@@ -56,31 +56,46 @@ body {
   @apply bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium py-2 px-4 rounded-lg transition-colors duration-200;
 }
 
-/* 滚动条样式 */
+/* Windows 桌面应用滚动条样式 - 加宽以适配桌面操作 */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 14px;
+  height: 14px;
 }
 
 ::-webkit-scrollbar-track {
-  background: transparent;
+  background: #f3f4f6;
+  border-radius: 7px;
 }
 
 ::-webkit-scrollbar-thumb {
   background: #d1d5db;
-  border-radius: 4px;
+  border-radius: 7px;
+  border: 2px solid #f3f4f6;
 }
 
 ::-webkit-scrollbar-thumb:hover {
   background: #9ca3af;
 }
 
+::-webkit-scrollbar-thumb:active {
+  background: #6b7280;
+}
+
+.dark ::-webkit-scrollbar-track {
+  background: #1f2937;
+}
+
 .dark ::-webkit-scrollbar-thumb {
   background: #4b5563;
+  border-color: #1f2937;
 }
 
 .dark ::-webkit-scrollbar-thumb:hover {
   background: #6b7280;
+}
+
+.dark ::-webkit-scrollbar-thumb:active {
+  background: #9ca3af;
 }
 
 /* 文件拖拽区域样式 */
@@ -430,4 +445,27 @@ body {
 /* 状态栏样式 */
 .status-bar {
   @apply h-8 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 flex items-center px-4 text-xs text-gray-600 dark:text-gray-400;
+}
+
+/* 日志内容区域 - 防止双重滚动条 */
+#logContent {
+  position: relative;
+  overflow: auto !important;
+}
+
+#logLines {
+  min-width: fit-content;
+  width: 100%;
+}
+
+/* 日志行样式 - 确保不会产生额外滚动 */
+.log-line {
+  white-space: nowrap;
+  min-width: 100%;
+  display: flex;
+}
+
+.log-line .content {
+  overflow-x: visible;
+  white-space: pre;
 }

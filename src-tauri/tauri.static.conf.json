@@ -2,7 +2,7 @@
   "build": {
     "beforeBuildCommand": "npm run build",
     "beforeDevCommand": "",
-    "devPath": "../dist",
+    "devPath": "../dist/src",
     "distDir": "../dist"
   },
   "package": {

@@ -1,8 +1,8 @@
 {
   "build": {
     "beforeBuildCommand": "npm run build",
-    "beforeDevCommand": "npm run dev",
-    "devPath": "http://localhost:3005",
+    "beforeDevCommand": "",
+    "devPath": "../dist",
     "distDir": "../dist"
   },
   "package": {
@@ -44,7 +44,7 @@
       "icon": []
     },
     "security": {
-      "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' http://localhost:3004 ws://localhost:3004;"
+      "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';"
     },
     "windows": [
       {

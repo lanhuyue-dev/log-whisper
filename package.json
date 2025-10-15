@@ -11,6 +11,7 @@
     "tauri": "tauri",
     "start": "tauri dev",
     "tauri:dev": "tauri dev",
+    "tauri:dev:static": "npm run build:css:prod && npm run build && tauri dev --config src-tauri/tauri.static.conf.json",
     "tauri:build": "tauri build",
     "build:css": "tailwindcss -i ./src/style.css -o ./src/style.css --watch",
     "build:css:prod": "tailwindcss -i ./src/style.css -o ./src/style.css --minify",

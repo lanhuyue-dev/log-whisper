@@ -54,7 +54,7 @@
 
                 <!-- 快速操作提示 -->
                 <div class="text-xs text-gray-500 dark:text-gray-400 hidden lg:block">
-                    💡 使用左侧面板进行日志级别过滤
+                    💡 使用「选择文件」按钮或左侧面板进行日志过滤
                 </div>
             </div>
 
@@ -123,14 +123,11 @@
                 <!-- 欢迎界面 -->
                 <div id="welcomeScreen" class="flex-1 flex items-center justify-center p-4">
                     <div class="text-center space-y-4 max-w-lg">
-                        <div class="text-5xl">👋</div>
-                        <h2 class="text-2xl font-bold text-gray-900 dark:text-white">欢迎使用 LogWhisper Tauri 版本</h2>
-
-                        <!-- 拖拽区域 -->
-                        <div id="dropZone" class="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg p-8 text-center hover:border-primary-500 dark:hover:border-primary-400 transition-colors duration-200">
-                            <div class="text-4xl mb-4">📁</div>
-                            <p class="text-gray-600 dark:text-gray-400 mb-2">拖拽日志文件到此处</p>
-                            <p class="text-sm text-gray-500 dark:text-gray-500">或点击上方的「选择文件」按钮</p>
+                        <!-- 文件选择提示 -->
+                        <div class="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg p-8 text-center">
+                            <div class="text-4xl mb-4">📄</div>
+                            <p class="text-gray-600 dark:text-gray-400 mb-2">请使用「选择文件」按钮加载日志</p>
+                            <p class="text-sm text-gray-500 dark:text-gray-500">支持多种日志格式解析</p>
                         </div>
 
                         <div class="text-left bg-gray-50 dark:bg-gray-800 rounded-lg p-4 mt-6">
@@ -209,6 +206,6 @@
     </div>
 
     <!-- Tauri API -->
-    <script src="main.js"></script>
+    <script src="main.js?v=20251015-3-debug"></script>
 </body>
 </html>

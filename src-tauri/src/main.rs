@@ -374,32 +374,22 @@ async fn parse_log(request: ParseRequest, state: tauri::State<'_, AppState>) -> 
     // 使用增强插件系统处理（小文件）- 性能优化版本
     info!("使用增强插件系统处理日志");
 
-    // 检测日志格式并选择合适的插件
-    let detected_format = detect_log_format(&lines);
-    info!("检测到日志格式: {:?}", detected_format);
+      // 使用增强插件管理器的自动检测和解析功能
+    info!("🔧 使用增强插件管理器进行自动检测和解析");
 
-    let plugin_name = match detected_format.as_str() {
-        "DockerJson" => "docker_json",
-        "SpringBoot" => "springboot",
-        "MyBatis" => "mybatis",
-        _ => "raw"
-    };
-
-    info!("选择插件: {}", plugin_name);
-
-    // 直接使用插件解析，避免中间转换
     let parse_request = PluginParseRequest {
         content: content.clone(),
-        plugin: Some(plugin_name.to_string()),
-        file_path: None,
-        chunk_size: None,
+        plugin: None, // 不指定插件，让系统自动选择
+        file_path: request.file_path.clone(), // 传递文件路径以帮助链选择
+        chunk_size: request.chunk_size,
     };
 
     let plugin_start = std::time::Instant::now();
-    let entries: Vec<LogEntry> = match state.plugin_manager.parse_with_plugin(plugin_name, &parse_request) {
+    let (entries, detected_format) = match state.plugin_manager.auto_detect_and_parse(&parse_request) {
         Ok(result) => {
             let plugin_time = plugin_start.elapsed();
-            info!("插件解析成功，生成 {} 条目，插件耗时: {}ms", result.lines.len(), plugin_time.as_millis());
+            info!("增强插件管理器处理成功，生成 {} 条目，耗时: {}ms，检测格式: {:?}",
+                  result.lines.len(), plugin_time.as_millis(), result.detected_format);
 
             // 性能优化：直接转换，避免中间步骤
             let conversion_start = std::time::Instant::now();
@@ -414,10 +404,12 @@ async fn parse_log(request: ParseRequest, state: tauri::State<'_, AppState>) -> 
             }).collect();
             let conversion_time = conversion_start.elapsed();
             info!("数据转换耗时: {}ms", conversion_time.as_millis());
-            converted_entries
+
+            let detected_format = result.detected_format.clone();
+            (converted_entries, detected_format)
         }
         Err(e) => {
-            error!("插件处理失败: {}", e);
+            error!("增强插件管理器处理失败: {}", e);
             // 快速回退处理，避免重复计算
             return Ok(ParseResponse {
                 success: true,
@@ -437,8 +429,8 @@ async fn parse_log(request: ParseRequest, state: tauri::State<'_, AppState>) -> 
                     parse_time_ms: start_time.elapsed().as_millis() as u64,
                 },
                 chunk_info: None,
-                error: Some(format!("插件处理失败: {}", e)),
-                detected_format: Some(detected_format),
+                error: Some(format!("增强插件管理器处理失败: {}", e)),
+                detected_format: Some("Unknown".to_string()),
             });
         }
     };
@@ -462,8 +454,9 @@ async fn parse_log(request: ParseRequest, state: tauri::State<'_, AppState>) -> 
     let json_time = json_start.elapsed();
     info!("JSON序列化预估耗时: {}ms，预估大小: {} bytes", json_time.as_millis(), estimated_json_size);
 
-    info!("全量解析完成: {} 行，处理为 {} 条目，耗时: {}ms，使用插件: {}",
-              lines.len(), entries.len(), parse_time, plugin_name);
+    let detected_format_display = detected_format.clone().unwrap_or_else(|| "Unknown".to_string());
+    info!("全量解析完成: {} 行，处理为 {} 条目，耗时: {}ms，检测格式: {}",
+              lines.len(), entries.len(), parse_time, detected_format_display);
 
     let response_start = std::time::Instant::now();
     let response = ParseResponse {
@@ -472,7 +465,7 @@ async fn parse_log(request: ParseRequest, state: tauri::State<'_, AppState>) -> 
         stats,
         chunk_info: None,
         error: None,
-        detected_format: Some(detected_format),
+        detected_format: detected_format,
     };
     let response_time = response_start.elapsed();
     info!("响应构建耗时: {}ms", response_time.as_millis());

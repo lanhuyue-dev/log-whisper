@@ -228,7 +228,6 @@ function App() {
         {/* 左侧：应用标题和文件操作 */}
         <div className="flex items-center space-x-4">
           <div className="flex items-center space-x-2">
-            <FileText className="w-5 h-5 text-blue-600" />
             <span className="text-lg font-bold text-gray-900 dark:text-white">LogWhisper</span>
           </div>
 
@@ -288,21 +287,6 @@ function App() {
           /* 欢迎界面 */
           <div className="flex-1 flex items-center justify-center p-4">
             <div className="text-center space-y-4 max-w-lg">
-              <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
-                欢迎使用 LogWhisper
-              </h2>
-
-              {/* 拖拽区域 */}
-              <div
-                className={`drop-zone ${isDragging ? 'drag-over' : ''}`}
-                onDragOver={handleDragOver}
-                onDragLeave={handleDragLeave}
-                onDrop={handleDrop}
-              >
-                <div className="text-4xl mb-4">📁</div>
-                <p className="text-gray-600 dark:text-gray-400 mb-2">拖拽日志文件到此处</p>
-                <p className="text-sm text-gray-500 dark:text-gray-500">或点击上方的「选择文件」按钮</p>
-              </div>
 
               {/* 支持格式 */}
               <div className="text-left bg-gray-50 dark:bg-gray-800 rounded-lg p-4 mt-6">
@@ -436,11 +420,9 @@ function App() {
         <div className="flex items-center justify-between w-full">
           <div className="flex items-center space-x-4">
             <span>行 {filteredLogs.length}/{stats?.total_lines || 0}</span>
-            <span>插件: {plugins.length} 个</span>
             {searchTerm && <span>搜索: {filteredLogs.length} 处匹配</span>}
           </div>
           <div className="flex items-center space-x-4">
-            <span>文件: {fileName || '无'}</span>
             {stats && <span>解析: {stats.parse_time_ms}ms</span>}
           </div>
         </div>

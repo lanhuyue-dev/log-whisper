@@ -92,25 +92,317 @@ body {
   @apply border-blue-500 bg-blue-50 dark:bg-blue-900/20;
 }
 
-/* 日志行样式 */
+/* 日志行样式 - 优化版本 */
 .log-line {
-  @apply font-mono text-sm py-1 px-3 border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors duration-150;
+  @apply font-mono text-sm py-2 px-3 border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800 transition-all duration-200;
+  position: relative;
+  min-height: 32px;
 }
 
+/* 日志行选中状态 */
+.log-line.selected {
+  @apply bg-blue-50 dark:bg-blue-950/20 border-l-4 border-l-blue-500;
+}
+
+/* 日志行悬停效果 */
+.log-line:hover {
+  @apply shadow-sm;
+  transform: translateX(1px);
+}
+
+/* 日志级别样式优化 */
 .log-line.error {
-  @apply bg-red-50 dark:bg-red-900/20 border-l-4 border-l-red-500;
+  @apply bg-red-50 dark:bg-red-950/30 border-l-4 border-l-red-500;
+  background: linear-gradient(90deg, rgba(239, 68, 68, 0.05) 0%, rgba(239, 68, 68, 0.02) 100%);
+}
+
+.dark .log-line.error {
+  background: linear-gradient(90deg, rgba(239, 68, 68, 0.15) 0%, rgba(239, 68, 68, 0.05) 100%);
 }
 
 .log-line.warn {
-  @apply bg-yellow-50 dark:bg-yellow-900/20 border-l-4 border-l-yellow-500;
+  @apply bg-yellow-50 dark:bg-yellow-950/30 border-l-4 border-l-yellow-500;
+  background: linear-gradient(90deg, rgba(245, 158, 11, 0.05) 0%, rgba(245, 158, 11, 0.02) 100%);
+}
+
+.dark .log-line.warn {
+  background: linear-gradient(90deg, rgba(245, 158, 11, 0.15) 0%, rgba(245, 158, 11, 0.05) 100%);
 }
 
 .log-line.info {
-  @apply bg-blue-50 dark:bg-blue-900/20 border-l-4 border-l-blue-500;
+  @apply bg-blue-50 dark:bg-blue-950/30 border-l-4 border-l-blue-500;
+  background: linear-gradient(90deg, rgba(59, 130, 246, 0.05) 0%, rgba(59, 130, 246, 0.02) 100%);
+}
+
+.dark .log-line.info {
+  background: linear-gradient(90deg, rgba(59, 130, 246, 0.15) 0%, rgba(59, 130, 246, 0.05) 100%);
 }
 
 .log-line.debug {
   @apply bg-gray-50 dark:bg-gray-900/20 border-l-4 border-l-gray-500;
+  background: linear-gradient(90deg, rgba(107, 114, 128, 0.05) 0%, rgba(107, 114, 128, 0.02) 100%);
+}
+
+.dark .log-line.debug {
+  background: linear-gradient(90deg, rgba(107, 114, 128, 0.15) 0%, rgba(107, 114, 128, 0.05) 100%);
+}
+
+/* 日志级别徽章样式 */
+.log-level-badge {
+  @apply inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium;
+  min-width: 60px;
+  justify-content: center;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.log-level-badge.error {
+  @apply bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-300;
+  border: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+.log-level-badge.warn {
+  @apply bg-yellow-100 text-yellow-800 dark:bg-yellow-900/50 dark:text-yellow-300;
+  border: 1px solid rgba(245, 158, 11, 0.2);
+}
+
+.log-level-badge.info {
+  @apply bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300;
+  border: 1px solid rgba(59, 130, 246, 0.2);
+}
+
+.log-level-badge.debug {
+  @apply bg-gray-100 text-gray-800 dark:bg-gray-700/50 dark:text-gray-300;
+  border: 1px solid rgba(107, 114, 128, 0.2);
+}
+
+/* 时间戳样式 */
+.log-timestamp {
+  @apply text-gray-500 dark:text-gray-400 text-xs;
+  font-family: 'JetBrains Mono', 'Fira Code', 'Monaco', monospace;
+  opacity: 0.8;
+}
+
+/* 日志前缀样式 */
+.log-prefix {
+  @apply text-gray-600 dark:text-gray-400 text-xs px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-800;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: 1px solid transparent;
+}
+
+.log-prefix:hover {
+  @apply bg-gray-200 dark:bg-gray-700;
+  border-color: rgba(59, 130, 246, 0.3);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.log-prefix.collapsed {
+  @apply bg-gray-50 dark:bg-gray-900;
+}
+
+/* 日志内容样式 */
+.log-content {
+  @apply flex-1 leading-relaxed;
+  word-break: break-word;
+  line-height: 1.5;
+}
+
+/* JSON 内容样式 */
+.log-json {
+  @apply font-mono text-xs bg-gray-100 dark:bg-gray-800 p-2 rounded border border-gray-200 dark:border-gray-700;
+  margin-top: 4px;
+  position: relative;
+}
+
+.log-json-header {
+  @apply flex items-center justify-between mb-2 text-gray-600 dark:text-gray-400;
+}
+
+.log-json-toggle {
+  @apply cursor-pointer hover:text-blue-600 dark:hover:text-blue-400 transition-colors;
+  user-select: none;
+}
+
+.log-json-content {
+  @apply overflow-x-auto;
+  white-space: pre-wrap;
+  font-family: 'JetBrains Mono', 'Fira Code', 'Monaco', monospace;
+}
+
+.log-json.collapsed .log-json-content {
+  display: none;
+}
+
+/* SQL 内容样式 */
+.log-sql {
+  @apply font-mono text-sm bg-blue-50 dark:bg-blue-950/20 p-3 rounded border border-blue-200 dark:border-blue-800;
+  margin-top: 4px;
+}
+
+.log-sql-header {
+  @apply flex items-center justify-between mb-2 text-blue-700 dark:text-blue-300;
+}
+
+.log-sql-toggle {
+  @apply cursor-pointer hover:text-blue-600 dark:hover:text-blue-400 transition-colors;
+  user-select: none;
+}
+
+.log-sql-content {
+  @apply overflow-x-auto;
+  white-space: pre-wrap;
+  font-family: 'JetBrains Mono', 'Fira Code', 'Monaco', monospace;
+  line-height: 1.4;
+}
+
+.log-sql.collapsed .log-sql-content {
+  display: none;
+}
+
+.log-sql-statement {
+  @apply text-blue-800 dark:text-blue-200 font-medium;
+}
+
+.log-sql-parameters {
+  @apply text-gray-600 dark:text-gray-400 mt-2;
+}
+
+.log-sql-result {
+  @apply text-green-700 dark:text-green-300 mt-2;
+}
+
+/* 异常堆栈样式 */
+.log-exception {
+  @apply font-mono text-xs bg-red-50 dark:bg-red-950/20 p-3 rounded border border-red-200 dark:border-red-800;
+  margin-top: 4px;
+}
+
+.log-exception-header {
+  @apply flex items-center justify-between mb-2 text-red-700 dark:text-red-300;
+}
+
+.log-exception-toggle {
+  @apply cursor-pointer hover:text-red-600 dark:hover:text-red-400 transition-colors;
+  user-select: none;
+}
+
+.log-exception-content {
+  @apply overflow-x-auto;
+  white-space: pre-wrap;
+  font-family: 'JetBrains Mono', 'Fira Code', 'Monaco', monospace;
+  line-height: 1.3;
+}
+
+.log-exception.collapsed .log-exception-content {
+  display: none;
+}
+
+/* 行号样式 */
+.log-line-number {
+  @apply text-gray-400 dark:text-gray-500 text-xs pr-3 py-2;
+  font-family: 'JetBrains Mono', 'Fira Code', 'Monaco', monospace;
+  min-width: 50px;
+  text-align: right;
+  user-select: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.log-line-number:hover {
+  @apply text-gray-600 dark:text-gray-400;
+}
+
+/* 日志行布局 */
+.log-line-layout {
+  @apply flex items-start gap-2;
+  min-height: 32px;
+  align-items: flex-start;
+}
+
+/* 搜索高亮样式 */
+.search-highlight {
+  @apply bg-yellow-200 dark:bg-yellow-800 text-yellow-900 dark:text-yellow-100;
+  padding: 1px 2px;
+  border-radius: 2px;
+  font-weight: 500;
+}
+
+/* 动画效果 */
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.log-line {
+  animation: slideDown 0.2s ease-out;
+}
+
+/* 折叠动画 */
+.log-json-content,
+.log-sql-content,
+.log-exception-content {
+  transition: all 0.3s ease;
+  overflow: hidden;
+}
+
+.log-json.collapsed .log-json-content,
+.log-sql.collapsed .log-sql-content,
+.log-exception.collapsed .log-exception-content {
+  max-height: 0;
+  opacity: 0;
+  margin-top: 0;
+}
+
+.log-json:not(.collapsed) .log-json-content,
+.log-sql:not(.collapsed) .log-sql-content,
+.log-exception:not(.collapsed) .log-exception-content {
+  max-height: 500px;
+  opacity: 1;
+}
+
+/* 工具提示样式 */
+.tooltip {
+  @apply absolute z-50 px-2 py-1 text-xs text-white bg-gray-900 rounded shadow-lg;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.tooltip.show {
+  opacity: 0.9;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .log-line {
+    @apply py-1 px-2;
+  }
+
+  .log-level-badge {
+    @apply text-xs px-1.5 py-0.5;
+    min-width: 50px;
+  }
+
+  .log-prefix {
+    max-width: 80px;
+  }
+
+  .log-line-number {
+    min-width: 40px;
+    font-size: 10px;
+  }
 }
 
 /* 动画效果 */

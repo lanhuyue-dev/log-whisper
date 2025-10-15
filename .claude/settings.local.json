@@ -23,7 +23,15 @@
       "Bash(npx vite build:*)",
       "WebSearch",
       "Read(//d/**)",
-      "Bash(RUST_BACKTRACE=1 cargo test:*)"
+      "Bash(RUST_BACKTRACE=1 cargo test:*)",
+      "Bash(RUST_LOG=debug cargo test:*)",
+      "Bash(cd:*)",
+      "Bash(npm start)",
+      "Bash(netstat:*)",
+      "Bash(taskkill:*)",
+      "Bash(TASKKILL:*)",
+      "Bash(powershell:*)",
+      "Bash(npm run tauri:dev:static:*)"
     ],
     "deny": [],
     "ask": []

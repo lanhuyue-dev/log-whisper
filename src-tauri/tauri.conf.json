@@ -1,8 +1,8 @@
 {
   "build": {
-    "beforeBuildCommand": "npm run build",
-    "beforeDevCommand": "npm run dev",
-    "devPath": "http://localhost:3000",
+    "beforeBuildCommand": "npm run build:css:prod && npx vite build",
+    "beforeDevCommand": "npm run build:css:prod && npm run dev",
+    "devPath": "http://localhost:1427",
     "distDir": "../dist"
   },
   "package": {
@@ -54,7 +54,8 @@
         "minWidth": 800,
         "minHeight": 600,
         "resizable": true,
-        "fullscreen": false
+        "fullscreen": false,
+        "maximized": true
       }
     ]
   }

@@ -1,12 +1,18 @@
-# 构建输出
+# Tauri 桌面应用构建输出
 /dist/
 /build/
+/target/
+/src-tauri/target/
+
+# Tauri 打包输出
+/src-tauri/target/release/bundle/
+/src-tauri/target/debug/bundle/
 
 # 依赖
 /node_modules/
 /.pnp
 .pnp.js
-tauri.conf.json
+pnpm-lock.yaml
 
 # 日志文件
 *.log
@@ -48,16 +54,10 @@ Thumbs.db
 .env.test.local
 .env.production.local
 
-# 测试覆盖率
-/coverage/
-
-# 打包文件
-*.tgz
-*.tar.gz
-
-# Electron 输出
-/out/
-/app/dist/
+# Tauri 应用数据目录
+# 用户数据存储目录（根据应用配置）
+# AppData/Local/LogWhisper/
+# ~/.local/share/LogWhisper/
 
 # 备份文件
 *.bak
@@ -71,9 +71,29 @@ settings.backup.*
 test-*.log
 sample-*.txt
 debug-*
+test_exception_*.*
+test-*.js
+test-*.rs
 
 # 性能分析文件
 *.cpuprofile
 *.heapprofile
-/target/
-/src-rust/target/
+
+# 系统特定的忽略文件
+Thumbs.db:ok
+.DS_Store:ok
+
+# 无用的文件
+nul
+/src-rust/
+
+# IDE 和编辑器配置
+.claude/settings.local.json
+.qoder/
+.idea/
+
+# TypeScript 和 JavaScript
+*.tsbuildinfo
+
+# Tauri 特定
+/src-tauri/Cargo.lock

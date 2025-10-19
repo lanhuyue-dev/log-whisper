@@ -104,6 +104,7 @@ impl PluginChainContext {
     ///
     /// # Returns
     /// - `Option<&String>`: 元数据值的引用（如果存在）
+    #[allow(dead_code)]
     pub fn get_chain_metadata(&self, key: &str) -> Option<&String> {
         self.chain_metadata.get(key)
     }
@@ -111,6 +112,7 @@ impl PluginChainContext {
     /// 停止后续插件的执行
     ///
     /// 通常在遇到致命错误或完成所有必要处理时调用。
+    #[allow(dead_code)]
     pub fn stop_chain(&mut self) {
         self.should_continue = false;
         debug!("🛑 插件链执行被停止");
@@ -146,6 +148,7 @@ pub trait PluginFilter {
     ///
     /// # Returns
     /// - `&str`: 过滤器的用户友好描述
+    #[allow(dead_code)]
     fn description(&self) -> &str;
 
     /// 返回过滤器的优先级
@@ -510,6 +513,15 @@ impl PluginChainManager {
             return self.default_chain.as_ref().and_then(|name| self.chains.get(name));
         }
 
+        // 优先检测Docker JSON格式（最高优先级）
+        let content_lower = content.to_lowercase();
+        if content_lower.contains("{") &&
+           content_lower.contains("\"log\"") &&
+           content_lower.contains("\"stream\"") {
+            info!("🐳 检测到Docker JSON格式，优先选择Docker链");
+            return self.chains.get("docker");
+        }
+
         // 计算每个链的匹配度
         let mut best_chain = None;
         let mut best_score = 0.0;
@@ -628,6 +640,7 @@ impl PluginChainManager {
     ///
     /// # 参数
     /// - `enabled`: 是否启用智能选择
+    #[allow(dead_code)]
     pub fn set_smart_selection(&mut self, enabled: bool) {
         self.smart_selection = enabled;
     }

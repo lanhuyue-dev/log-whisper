@@ -15,6 +15,8 @@ use log::{debug, error, info, warn};
 
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use tokio::sync::Mutex;
+use std::path::PathBuf;
 
 // 模块导入
 mod config;
@@ -24,7 +26,6 @@ mod plugins;
 use config::{ConfigService, ThemeMode};
 use plugins::core::EnhancedPluginManager;
 use plugins::LogEntry as PluginLogEntry;
-use plugins::ParseRequest as PluginParseRequest;
 
 /// 应用程序全局状态
 ///
@@ -32,7 +33,7 @@ use plugins::ParseRequest as PluginParseRequest;
 /// 使用Arc确保在多线程环境中的安全共享。
 pub struct AppState {
     /// 配置服务实例，管理用户设置和应用配置
-    pub config_service: Arc<ConfigService>,
+    pub config_service: Arc<Mutex<ConfigService>>,
     /// 增强插件管理器，负责日志解析插件的管理和调用
     pub plugin_manager: Arc<EnhancedPluginManager>,
 }
@@ -59,7 +60,14 @@ impl AppState {
         // 初始化配置服务
         // 配置服务负责管理用户偏好设置、主题配置、解析设置等
         debug!("初始化配置服务");
-        let config_service = Arc::new(ConfigService::new());
+
+        // 确定数据库路径
+        let app_data_dir = get_app_data_dir().await?;
+        let db_path = app_data_dir.join("config.db");
+
+        info!("📁 配置数据库路径: {:?}", db_path);
+
+        let config_service = Arc::new(Mutex::new(ConfigService::new(&db_path)?));
 
         // 初始化插件系统
         // 插件管理器负责加载和管理所有日志解析插件
@@ -72,6 +80,67 @@ impl AppState {
             config_service,
             plugin_manager,
         })
+    }
+}
+
+/// 获取应用数据目录
+///
+/// 根据不同操作系统返回相应的应用数据目录路径。
+///
+/// # Returns
+/// - `Result<PathBuf, Box<dyn std::error::Error>>`: 应用数据目录路径
+async fn get_app_data_dir() -> Result<PathBuf, Box<dyn std::error::Error>> {
+    let app_name = "LogWhisper";
+
+    #[cfg(target_os = "windows")]
+    {
+        let mut path = dirs::config_dir()
+            .ok_or("Failed to get AppData directory")?;
+        path.push(app_name);
+
+        // 确保目录存在
+        std::fs::create_dir_all(&path)?;
+
+        Ok(path)
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let mut path = dirs::home_dir()
+            .ok_or("Failed to get home directory")?;
+        path.push("Library");
+        path.push("Application Support");
+        path.push(app_name);
+
+        // 确保目录存在
+        std::fs::create_dir_all(&path)?;
+
+        Ok(path)
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let path = dirs::data_dir()
+            .ok_or("Failed to get data directory")?
+            .join(app_name);
+
+        // 确保目录存在
+        std::fs::create_dir_all(&path)?;
+
+        Ok(path)
+    }
+
+    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+    {
+        // 默认使用当前目录
+        let path = std::env::current_dir()
+            .map_err(|e| e.into())?
+            .join(app_name);
+
+        // 确保目录存在
+        std::fs::create_dir_all(&path)?;
+
+        Ok(path)
     }
 }
 
@@ -413,38 +482,73 @@ async fn parse_log(request: ParseRequest, state: tauri::State<'_, AppState>) -> 
 
         debug!("📏 [BACKEND_DEBUG] 分块范围: 第{}-{}行（共{}行）", start_index + 1, end_index, total_lines);
 
-        // 提取当前块的日志行
-        let chunk_entries: Vec<LogEntry> = lines.iter()
+        // 提取当前块的原始日志内容作为字符串
+        let chunk_content: String = lines.iter()
             .enumerate()
             .skip(start_index)
             .take(chunk_size)
-            .map(|(global_index, line)| LogEntry {
-                line_number: global_index + 1,
-                content: line.to_string(),
-                timestamp: extract_timestamp(line),
-                level: extract_log_level(line),
-                formatted_content: Some(line.trim().to_string()),
-                metadata: std::collections::HashMap::new(),
-                processed_by: vec!["generic_parser".to_string()],
-            })
-            .collect();
+            .map(|(_, line)| *line)
+            .collect::<Vec<&str>>()
+            .join("\n");
 
-        info!("📊 [BACKEND_DEBUG] 原始分块条目数: {}", chunk_entries.len());
+        info!("📊 [BACKEND_DEBUG] 分块内容长度: {} 字符", chunk_content.len());
 
-        // 使用插件系统增强分块处理
-        let processed_entries = match process_logs_with_plugin_system(&chunk_entries, &state.plugin_manager).await {
-            Ok(entries) => {
-                info!("✅ [BACKEND_DEBUG] 分块插件处理成功: {} -> {} 条目", chunk_entries.len(), entries.len());
-                entries
+        // 使用插件链的自动检测系统处理分块内容
+        let parse_request = crate::plugins::ParseRequest {
+            file_path: request.file_path.clone(),
+            content: chunk_content,
+            plugin: Some("auto".to_string()),
+            chunk_size: None,
+        };
+
+        debug!("🔍 [BACKEND_DEBUG] 调用插件链自动检测系统处理分块");
+        let parse_result = match state.plugin_manager.auto_detect_and_parse(&parse_request) {
+            Ok(result) => {
+                info!("✅ [BACKEND_DEBUG] 插件链自动检测成功: {} -> {} 条目",
+                      result.lines.len(), result.lines.len());
+                info!("🔍 [BACKEND_DEBUG] 检测格式: {:?}", result.detected_format);
+                if let Some(first_line) = result.lines.first() {
+                    info!("🔍 [BACKEND_DEBUG] 第一条记录formatted_content: {:?}", first_line.formatted_content);
+                }
+                result.lines
             }
             Err(e) => {
-                error!("❌ [BACKEND_DEBUG] 分块插件系统处理失败: {}", e);
+                error!("❌ [BACKEND_DEBUG] 插件链自动检测失败: {}", e);
                 warn!("🔄 [BACKEND_DEBUG] 回退到通用解析器");
-                chunk_entries
+
+                // 回退到简单的行解析
+                lines.iter()
+                    .enumerate()
+                    .skip(start_index)
+                    .take(chunk_size)
+                    .map(|(global_index, line)| {
+                        let log_line = crate::plugins::LogLine {
+                            line_number: global_index + 1,
+                            content: line.to_string(),
+                            timestamp: extract_timestamp(line),
+                            level: extract_log_level(line),
+                            formatted_content: Some(line.trim().to_string()),
+                            metadata: std::collections::HashMap::new(),
+                            processed_by: vec!["fallback_parser".to_string()],
+                        };
+                        log_line
+                    })
+                    .collect()
             }
         };
 
-        let entries = processed_entries;
+        // Convert LogLine to LogEntry
+        let entries: Vec<LogEntry> = parse_result.into_iter().map(|log_line| {
+            LogEntry {
+                line_number: log_line.line_number,
+                content: log_line.content,
+                timestamp: log_line.timestamp,
+                level: log_line.level,
+                formatted_content: log_line.formatted_content,
+                metadata: log_line.metadata,
+                processed_by: log_line.processed_by,
+            }
+        }).collect();
 
         // 计算分块信息
         let total_chunks = (total_lines + chunk_size - 1) / chunk_size; // 向上取整
@@ -490,9 +594,9 @@ async fn parse_log(request: ParseRequest, state: tauri::State<'_, AppState>) -> 
       // 使用增强插件管理器的自动检测和解析功能
     info!("🔧 使用增强插件管理器进行自动检测和解析");
 
-    let parse_request = PluginParseRequest {
+    let parse_request = crate::plugins::ParseRequest {
         content: content.clone(),
-        plugin: None, // 不指定插件，让系统自动选择
+        plugin: Some("auto".to_string()), // 使用自动检测
         file_path: request.file_path.clone(), // 传递文件路径以帮助链选择
         chunk_size: request.chunk_size,
     };
@@ -661,7 +765,7 @@ async fn test_parse(request: ParseRequest) -> Result<serde_json::Value, String> 
 async fn get_theme_config(state: tauri::State<'_, AppState>) -> Result<ThemeResponse, String> {
     debug!("🎨 获取主题配置");
 
-    match state.config_service.get_theme_config().await {
+    match state.config_service.lock().await.get_theme_config() {
         Ok(theme) => {
             debug!("✅ 主题配置获取成功: mode={:?}", theme.mode);
 
@@ -720,7 +824,7 @@ async fn update_theme_config(
 
     // 第一步：获取当前配置作为更新基础
     // 这样可以实现部分更新，只修改请求中包含的字段
-    let mut theme = match state.config_service.get_theme_config().await {
+    let mut theme = match state.config_service.lock().await.get_theme_config() {
         Ok(theme) => {
             debug!("✅ 获取当前主题配置成功");
             theme
@@ -776,7 +880,7 @@ async fn update_theme_config(
     }
 
     // 第五步：保存配置到持久化存储
-    match state.config_service.set_theme_config(&theme).await {
+    match state.config_service.lock().await.set_theme_config(&theme) {
         Ok(_) => {
             info!("✅ 主题配置更新成功: 模式 {:?} -> {:?}", old_mode, theme.mode);
             Ok("主题配置更新成功".to_string())
@@ -814,7 +918,7 @@ async fn update_theme_config(
 async fn get_parse_config(state: tauri::State<'_, AppState>) -> Result<serde_json::Value, String> {
     debug!("⚙️ 获取解析配置");
 
-    match state.config_service.get_parse_config().await {
+    match state.config_service.lock().await.get_parse_config() {
         Ok(parse) => {
             debug!("✅ 解析配置获取成功");
 
@@ -857,7 +961,7 @@ async fn get_parse_config(state: tauri::State<'_, AppState>) -> Result<serde_jso
 async fn get_plugin_config(state: tauri::State<'_, AppState>) -> Result<serde_json::Value, String> {
     debug!("🔌 获取插件配置");
 
-    match state.config_service.get_plugin_config().await {
+    match state.config_service.lock().await.get_plugin_config() {
         Ok(plugin) => {
             debug!("✅ 插件配置获取成功");
 
@@ -900,7 +1004,7 @@ async fn get_plugin_config(state: tauri::State<'_, AppState>) -> Result<serde_js
 async fn get_window_config(state: tauri::State<'_, AppState>) -> Result<serde_json::Value, String> {
     debug!("🪟 获取窗口配置");
 
-    match state.config_service.get_window_config().await {
+    match state.config_service.lock().await.get_window_config() {
         Ok(window) => {
             debug!("✅ 窗口配置获取成功");
 
@@ -946,7 +1050,7 @@ async fn get_window_config(state: tauri::State<'_, AppState>) -> Result<serde_js
 async fn get_all_configs(state: tauri::State<'_, AppState>) -> Result<serde_json::Value, String> {
     debug!("📦 获取所有配置信息");
 
-    match state.config_service.get_all_configs().await {
+    match state.config_service.lock().await.get_all_configs() {
         Ok(configs) => {
             debug!("✅ 所有配置获取成功");
 
@@ -1567,6 +1671,7 @@ async fn process_logs_with_plugin_system(entries: &[LogEntry], plugin_manager: &
 /// - 早期退出：一旦确定格式立即返回
 /// - 采样检测：大文件可考虑只检测前N行
 /// - 缓存结果：相同内容的重复检测
+#[allow(dead_code)]
 fn detect_log_format(lines: &[&str]) -> String {
     debug!("🔍 开始智能日志格式检测，总行数: {}", lines.len());
 

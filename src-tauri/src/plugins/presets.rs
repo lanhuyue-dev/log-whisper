@@ -78,10 +78,11 @@ fn register_docker_chain(manager: &mut PluginChainManager) {
     let mut conditions = ChainConditions::new();
     conditions.file_patterns.push("docker".to_string());
     conditions.file_patterns.push("container".to_string());
+    conditions.file_patterns.push("container-log".to_string()); // 完整匹配文件名
     conditions.content_patterns.push("\"log\"".to_string()); // JSON格式特征
     conditions.content_patterns.push("\"stream\"".to_string()); // Docker特有字段
     conditions.content_patterns.push("\"time\"".to_string()); // Docker时间戳
-    conditions.min_confidence = 0.7; // 提高置信度阈值，确保优先选择
+    conditions.min_confidence = 0.6; // 降低置信度阈值，提高匹配概率
     chain.conditions = Some(conditions);
 
     // 添加过滤器（按优先级顺序）
@@ -159,6 +160,7 @@ fn register_generic_chain(manager: &mut PluginChainManager) {
     chain.conditions = None;
 
     // 添加过滤器
+    chain.add_filter(Arc::new(SpringBootFilter));
     chain.add_filter(Arc::new(JavaLogFilter));
     chain.add_filter(Arc::new(ContentEnhancerFilter));
     chain.add_filter(Arc::new(JsonStructureFilter));
@@ -251,10 +253,12 @@ fn register_database_chain(manager: &mut PluginChainManager) {
 /// 自定义链构建器
 ///
 /// 提供便捷的API来构建自定义的插件链。
+#[allow(dead_code)]
 pub struct ChainBuilder {
     chain: PluginChain,
 }
 
+#[allow(dead_code)]
 impl ChainBuilder {
     /// 创建新的链构建器
     ///

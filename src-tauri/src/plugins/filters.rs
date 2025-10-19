@@ -70,8 +70,8 @@ impl PluginFilter for DockerJsonFilter {
         info!("🐳 Docker JSON过滤器开始处理");
 
         let lines_to_process = if context.current_lines.is_empty() {
-            // 第一次处理，从原始内容创建行列表
-            context.original_content.lines().enumerate().map(|(i, line)| {
+            // 第一次处理，从原始内容创建行列表，过滤空行
+            context.original_content.lines().enumerate().filter(|(_, line)| !line.trim().is_empty()).map(|(i, line)| {
                 LogLine {
                     line_number: i + 1,
                     content: line.to_string(),
@@ -107,9 +107,33 @@ impl PluginFilter for DockerJsonFilter {
                             line.timestamp = Some(time.to_string());
                         }
 
-                        // 提取log内容作为主要内容
+                        // 提取log内容作为主要内容，并解析Java GC日志格式
                         if let Some(log_content) = json.get("log").and_then(|v| v.as_str()) {
-                            line.content = log_content.trim_end_matches('\n').to_string();
+                            let clean_content = log_content.trim_end_matches('\n');
+                            line.content = clean_content.to_string();
+
+                            // 解析Java GC日志格式中的日志级别
+                            // 格式: [0.000s][warning][gc] -XX:+PrintGCDetails is deprecated...
+                            // 或: [0.002s][info   ][gc,init] CardTable entry size: 512
+                            let gc_log_pattern = regex::Regex::new(r"^\[[^\]]+\]\[([^\]]+)\]").unwrap();
+                            if let Some(caps) = gc_log_pattern.captures(clean_content) {
+                                if let Some(level_str) = caps.get(1) {
+                                    let normalized_level = match level_str.as_str().trim() {
+                                        "warning" => "WARN".to_string(),
+                                        "info" => "INFO".to_string(),
+                                        "error" => "ERROR".to_string(),
+                                        "debug" => "DEBUG".to_string(),
+                                        "trace" => "DEBUG".to_string(),
+                                        other => other.to_uppercase(),
+                                    };
+                                    line.level = Some(normalized_level);
+                                }
+                            }
+
+                            // 设置格式化内容为清洁的消息内容（去除GC日志前缀）
+                            let clean_content_pattern = regex::Regex::new(r"^\[[^\]]+\]\[[^\]]+\]\s*").unwrap();
+                            let formatted = clean_content_pattern.replace(clean_content, "").to_string();
+                            line.formatted_content = Some(formatted);
                         }
 
                         // 添加处理标记
@@ -155,7 +179,7 @@ impl PluginFilter for DockerJsonFilter {
 /// 2. 提取时间戳、级别、线程、类名等信息
 /// 3. 标准化日志级别
 /// 4. 确定输出流类型（stdout/stderr）
-/// 5. 保留堆栈跟踪信息
+/// 注意：异常堆栈跟踪处理功能已移除
 pub struct SpringBootFilter;
 
 impl SpringBootFilter {
@@ -163,7 +187,8 @@ impl SpringBootFilter {
     /// 支持多种格式:
     /// 1. 2024-01-15 14:30:25.123 [main] INFO com.example.App - Message (传统格式)
     /// 2. 2025-10-15T07:40:55.169Z  INFO 1 --- [  EventHandler1] s.i.ProjectAttributeTemplateEventSpiImpl : Message (新格式)
-    const LOG_PATTERN: &'static str = r"^(\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}:\d{2}[.,]\d{3}(?:Z)?)\s+([A-Z]+)\s+(?:\d+\s+---\s+)?\[\s*([^\]]+)\s*\]\s+([^\s:]+)\s*:\s*(.*)$";
+    /// 3. 2025-01-15 10:30:45.123 INFO  [main] Starting application... (简化格式，无类名)
+    const LOG_PATTERN: &'static str = r"^(\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}:\d{2}[.,]\d{3}(?:Z)?)\s+([A-Z]+)\s+(?:\d+\s+---\s+)?\[\s*([^\]]+)\s*\](?:\s+([^\s:]+)\s*:\s*)?(.*)$";
 }
 
 impl PluginFilter for SpringBootFilter {
@@ -194,9 +219,9 @@ impl PluginFilter for SpringBootFilter {
                 (line.content.contains("---") && line.content.contains('['));
 
             // 检查传统格式特征
-            let has_traditional_format = (line.content.starts_with(|c: char| c.is_ascii_digit()) &&
+            let has_traditional_format = line.content.starts_with(|c: char| c.is_ascii_digit()) &&
                 line.content.len() >= 10 &&
-                (line.content.contains('[') || line.content.contains(" INFO ") || line.content.contains(" ERROR ")));
+                (line.content.contains('[') || line.content.contains(" INFO ") || line.content.contains(" ERROR "));
 
             // 检查Spring相关关键字
             let has_spring_keywords = content_lower.contains("spring") ||
@@ -222,8 +247,8 @@ impl PluginFilter for SpringBootFilter {
         info!("🔍 SpringBoot正则表达式: {}", Self::LOG_PATTERN);
 
         let lines_to_process = if context.current_lines.is_empty() {
-            // 第一次处理，从原始内容创建行列表
-            context.original_content.lines().enumerate().map(|(i, line)| {
+            // 第一次处理，从原始内容创建行列表，过滤空行
+            context.original_content.lines().enumerate().filter(|(_, line)| !line.trim().is_empty()).map(|(i, line)| {
                 LogLine {
                     line_number: i + 1,
                     content: line.to_string(),
@@ -245,15 +270,15 @@ impl PluginFilter for SpringBootFilter {
         for mut line in lines_to_process {
             let trimmed = line.content.trim();
 
-            // 跳过空白行
+            // 跳过空白行 - 完全移除而不是标记为跳过
             if trimmed.is_empty() {
-                line.metadata.insert("skipped".to_string(), "empty_line".to_string());
-                processed_lines.push(line);
                 continue;
             }
 
             let content_copy = line.content.clone();
             info!("🔍 尝试匹配行 {}: '{}'", line.line_number, content_copy);
+
+            // 异常堆栈跟踪功能已移除 - 所有行都作为普通日志处理
 
             if let Some(captures) = regex.captures(&content_copy) {
                 info!("✅ 匹配成功! 捕获组数量: {}", captures.len());
@@ -288,20 +313,38 @@ impl PluginFilter for SpringBootFilter {
                     info!("  线程名: {}", thread.as_str());
                 }
 
-                // 提取类名 (捕获组4)
+                // 提取类名 (捕获组4) - 现在是可选的
                 if let Some(logger) = captures.get(4) {
-                    line.metadata.insert("logger".to_string(), logger.as_str().to_string());
-                    info!("  类名: {}", logger.as_str());
-                }
+                    // 检查这是否是类名（不包含空格）还是消息内容的一部分
+                    let logger_str = logger.as_str().trim();
+                    if logger_str.contains(' ') {
+                        // 如果包含空格，说明这是消息内容而不是类名
+                        line.content = logger_str.to_string();
+                        info!("  消息: {}", logger_str);
+                    } else {
+                        // 这是类名
+                        line.metadata.insert("logger".to_string(), logger_str.to_string());
+                        info!("  类名: {}", logger_str);
 
-                // 提取消息内容 (捕获组5)
-                if let Some(message) = captures.get(5) {
-                    line.content = message.as_str().to_string();
-                    info!("  消息: {}", message.as_str());
+                        // 消息内容在捕获组5
+                        if let Some(message) = captures.get(5) {
+                            line.content = message.as_str().to_string();
+                            info!("  消息: {}", message.as_str());
+                        }
+                    }
+                } else {
+                    // 没有类名，消息内容在捕获组5
+                    if let Some(message) = captures.get(5) {
+                        line.content = message.as_str().to_string();
+                        info!("  消息: {}", message.as_str());
+                    }
                 }
 
                 line.processed_by.push("springboot_filter".to_string());
                 processed_count += 1;
+
+                // 设置格式化内容为纯净的消息内容，避免重复显示日志级别
+                line.formatted_content = Some(line.content.clone());
 
                 info!("✅ SpringBoot解析成功: 行{} -> {}", line.line_number, line.content);
             } else {
@@ -342,9 +385,20 @@ impl PluginFilter for SpringBootFilter {
 
     fn can_handle(&self, content: &str, _file_path: Option<&str>) -> bool {
         let content_lower = content.to_lowercase();
+
+        // 首先排除Docker JSON格式
+        if content_lower.contains("{") &&
+           content_lower.contains("\"log\"") &&
+           content_lower.contains("\"stream\"") {
+            return false;
+        }
+
+        // 检测SpringBoot特征
         content_lower.contains("spring") ||
         content_lower.contains("application.start") ||
         content_lower.contains("springframework") ||
+        content_lower.contains("com.example.") ||  // 常见的SpringBoot包名
+        content_lower.contains("http-nio-") ||     // Tomcat线程名
         content.lines().any(|line| {
             line.starts_with(|c: char| c.is_ascii_digit()) &&
             line.len() >= 10 &&
@@ -390,6 +444,7 @@ impl SpringBootFilter {
             _ => "stdout",
         }
     }
+
 }
 
 /// MyBatis过滤器
@@ -544,9 +599,12 @@ impl PluginFilter for JsonStructureFilter {
         info!("📋 JSON结构化过滤器开始处理");
 
         for line in &mut context.current_lines {
-            // 构建格式化内容
-            let formatted = self.build_formatted_content(&line);
-            line.formatted_content = Some(formatted);
+            // 如果已经有formatted_content，不要覆盖（保持SpringBootFilter等过滤器设置的纯净内容）
+            if line.formatted_content.is_none() {
+                // 构建格式化内容
+                let formatted = self.build_formatted_content(&line);
+                line.formatted_content = Some(formatted);
+            }
 
             // 添加处理标记
             line.processed_by.push("json_structure_filter".to_string());
@@ -671,6 +729,18 @@ impl JsonStructureFilter {
     fn format_log_content(&self, line: &LogLine) -> String {
         let content = &line.content;
 
+        // 如果是已格式化的异常，直接返回
+        if let Some(log_type) = line.metadata.get("log_type") {
+            if log_type == "exception_formatted" ||
+               log_type == "exception_main" ||
+               log_type == "exception_business_header" ||
+               log_type == "exception_business" ||
+               log_type == "exception_framework_header" ||
+               log_type == "exception_framework" {
+                return content.clone();
+            }
+        }
+
         // SQL格式化
         if let Some(sql_type) = line.metadata.get("sql_type") {
             return self.format_sql_content(content, sql_type);
@@ -679,11 +749,6 @@ impl JsonStructureFilter {
         // JSON内容收起
         if self.is_json_content(content) {
             return self.format_json_content(content);
-        }
-
-        // 异常堆栈跟踪格式化
-        if content.contains("Exception") || content.contains("at ") || content.contains("Caused by:") {
-            return self.format_exception_content(content);
         }
 
         // 普通内容直接返回
@@ -779,6 +844,7 @@ impl JsonStructureFilter {
     }
 
     /// 格式化异常内容
+    #[allow(dead_code)]
     fn format_exception_content(&self, content: &str) -> String {
         let lines: Vec<&str> = content.lines().collect();
 
@@ -1001,6 +1067,10 @@ impl PluginFilter for ContentEnhancerFilter {
 
 #[cfg(test)]
 mod springboot_tests {
+    use crate::plugins::chain::{PluginFilter, PluginChainContext};
+    use crate::plugins::{LogLine, ParseRequest};
+    use std::collections::HashMap;
+
     #[test]
     fn test_regex_pattern_directly() {
         use regex::Regex;
@@ -1029,4 +1099,5 @@ mod springboot_tests {
             panic!("❌ Regex匹配失败");
         }
     }
-}
+
+  }

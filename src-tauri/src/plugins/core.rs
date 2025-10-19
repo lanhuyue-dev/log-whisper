@@ -180,14 +180,23 @@ impl EnhancedPluginManager {
     /// - 详细的处理链追踪和性能监控
     pub fn auto_detect_and_parse(&self, request: &ParseRequest) -> Result<ParseResult, String> {
         debug!("🔍 通过增强插件管理器执行自动检测");
+        debug!("📁 文件路径: {:?}", request.file_path);
+        debug!("📝 内容长度: {} 字符", request.content.len());
+        debug!("📋 前100字符预览: {:?}", request.content.chars().take(100).collect::<String>());
 
         // 优先使用插件链系统
         if self.chain_enabled {
             debug!("🔗 尝试使用插件链系统处理");
             if let Ok(chain_manager) = self.chain_manager.lock() {
+                debug!("🔗 获取插件链管理器成功");
                 match chain_manager.process(&request.content, request) {
                     Ok(result) => {
                         info!("✅ 插件链系统处理成功，检测格式: {:?}", result.detected_format);
+                        info!("📊 处理条目数: {}", result.lines.len());
+                        if let Some(first_line) = result.lines.first() {
+                            info!("🔍 第一条记录: {:?}", first_line);
+                            info!("🔍 第一条记录的formatted_content: {:?}", first_line.formatted_content);
+                        }
                         return Ok(result);
                     }
                     Err(e) => {

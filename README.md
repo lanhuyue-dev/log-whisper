@@ -108,8 +108,8 @@ chmod +x start-tauri.sh
 | **Auto Detection** | 智能格式自动识别 | ✅ 完全支持 | 自动选择最佳解析器 |
 | **SpringBoot** | Java应用日志，支持堆栈跟踪 | ✅ 完全支持 | 智能前缀缩略、ISO时间戳 |
 | **Docker JSON** | 容器JSON格式日志 | ✅ 完全支持 | Stream标签、时间戳解析 |
-| **MyBatis SQL** | SQL执行日志与参数绑定 | ✅ 完全支持 | SQL格式化、参数显示 |
 | **Raw Text** | 通用文本日志文件 | ✅ 完全支持 | 按行解析、级别识别 |
+| **MyBatis SQL** | SQL执行日志与参数绑定 | 🚧 开发中 | SQL格式化、参数显示 |
 | **Nginx访问日志** | Web服务器访问日志 | 🚧 开发中 | IP解析、状态码统计 |
 | **Apache访问日志** | Apache服务器日志 | 📋 计划中 | 时间戳解析、请求分析 |
 
@@ -237,26 +237,6 @@ impl LogParser for CustomLogParser {
 
 详细的插件开发指南请参考 [Plugin Development Guide](./docs/plugin-development.md)。
 
-## 📊 性能指标
-
-在标准测试环境下的性能表现：
-
-| 测试项目 | 数据量 | 处理时间 | 内存占用 | 特性优化 |
-|----------|--------|----------|----------|----------|
-| **SpringBoot日志** | 888行 | ~16ms | ~5MB | 智能前缀缩略 |
-| **Docker JSON日志** | 50MB | ~1秒 | ~30MB | 流式解析 |
-| **MyBatis SQL日志** | 200MB | ~5秒 | ~80MB | 参数格式化 |
-| **原始文本日志** | 100MB | ~2秒 | ~50MB | 级别识别 |
-
-*测试环境: Intel i7-8750H, 16GB RAM, SSD*
-
-### 性能优化特性
-
-- **预编译正则表达式**: 提升解析速度40-50%
-- **智能内存管理**: 预分配内存，减少重新分配
-- **流式处理**: 大文件分块处理，避免内存溢出
-- **并发处理**: 利用多核CPU并行解析
-
 ## 🤝 贡献指南
 
 我们欢迎社区贡献！请遵循以下步骤：
@@ -286,7 +266,7 @@ impl LogParser for CustomLogParser {
 
 ## 📜 更新日志
 
-### v1.0.0 (2025-10-14)
+### v1.0.0 (2025-10-19)
 - ✨ **初始发布**：基于Tauri + Rust架构的桌面日志分析工具
 - ✨ **智能日志解析**：支持SpringBoot、Docker JSON、MyBatis等格式
 - ✨ **智能前缀缩略**：自动识别并缩略冗长的日志前缀信息
@@ -322,7 +302,5 @@ impl LogParser for CustomLogParser {
 <div align="center">
 
 **⭐ 如果这个项目对您有帮助，请给我们一个Star！⭐**
-
-Made with ❤️ by LogWhisper Team
 
 </div>

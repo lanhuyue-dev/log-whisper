@@ -14,7 +14,7 @@ The LogWhisper team takes security vulnerabilities seriously. We appreciate your
 
 **Please do NOT report security vulnerabilities through public GitHub issues.**
 
-Instead, please send an email to: **security@log-whisper.com**
+Instead, please send an email to: **zhaijian@lanhuyue.com**
 
 If you do not receive a response within 48 hours, please follow up via the project's maintainers.
 

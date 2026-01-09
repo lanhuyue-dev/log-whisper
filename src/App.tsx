@@ -1,6 +1,9 @@
 import { useState, useEffect } from 'react'
 import { invoke } from '@tauri-apps/api/tauri'
 import { open } from '@tauri-apps/api/dialog'
+import { listen } from '@tauri-apps/api/event'
+
+import { LogList } from './components/LogList'
 
 interface LogLine {
   id: string
@@ -54,6 +57,7 @@ function App() {
   const [searchQuery, setSearchQuery] = useState('')
   const [theme, setTheme] = useState<'light' | 'dark'>('light')
   const [currentFile, setCurrentFile] = useState<string | null>(null)
+  const [autoScroll, setAutoScroll] = useState(true)
 
   // 检查后端状态
   useEffect(() => {
@@ -154,6 +158,13 @@ function App() {
   // 处理文件选择
   const handleFileSelect = async () => {
     try {
+      // 先停止当前的 tail
+      try {
+        await invoke('stop_tail');
+      } catch (e) {
+        // 忽略错误，可能没有正在运行的 tail
+      }
+
       const selected = await open({
         multiple: false,
         filters: [{
@@ -171,6 +182,34 @@ function App() {
       setError(`文件选择失败: ${error}`)
     }
   }
+
+  // 监听 tail 更新
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+
+    const setupListener = async () => {
+      unlisten = await listen<LogEntry[]>('tail-update', (event) => {
+        const newEntries = event.payload;
+        if (newEntries && newEntries.length > 0) {
+          const newLogLines = convertLogEntriesToLogLines(newEntries);
+          setLogs(prevLogs => {
+            // 这里可以添加最大日志行数限制，防止内存溢出
+            const MAX_LOGS = 10000;
+            const updatedLogs = [...prevLogs, ...newLogLines];
+            return updatedLogs.slice(-MAX_LOGS);
+          });
+        }
+      });
+    };
+
+    setupListener();
+
+    return () => {
+      if (unlisten) {
+        unlisten();
+      }
+    };
+  }, []);
 
   // 转换后端数据格式为前端格式
   const convertLogEntriesToLogLines = (entries: LogEntry[]): LogLine[] => {
@@ -208,6 +247,16 @@ function App() {
         const logLines = convertLogEntriesToLogLines(result.entries)
         setLogs(logLines)
         console.log(`✅ 转换了 ${logLines.length} 条日志记录`)
+        
+        // 启动 tail 监听
+        if (filePath) {
+           try {
+             await invoke('start_tail', { filePath: filePath });
+             console.log('✅ 启动 Tail 监听成功');
+           } catch (e) {
+             console.error('❌ 启动 Tail 监听失败:', e);
+           }
+        }
       } else {
         setError(result.error || '解析失败')
       }
@@ -346,6 +395,18 @@ function App() {
           {/* 右侧：工具按钮 */}
           <div className="flex items-center space-x-2">
             <button
+              onClick={() => setAutoScroll(!autoScroll)}
+              className={`p-2 rounded-lg transition-colors duration-200 flex items-center space-x-1 ${
+                autoScroll 
+                  ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300' 
+                  : 'hover:bg-gray-100 text-gray-500 dark:hover:bg-gray-700 dark:text-gray-400'
+              }`}
+              title={autoScroll ? '暂停自动滚动' : '开启自动滚动'}
+            >
+              <span className="text-lg">⬇️</span>
+              <span className="text-xs font-medium">Tail</span>
+            </button>
+            <button
               onClick={handleThemeToggle}
               className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors duration-200"
               title={theme === 'light' ? '切换到深色模式' : '切换到浅色模式'}
@@ -448,49 +509,12 @@ function App() {
                 </div>
               </div>
             ) : (
-              <div className="flex-1 overflow-auto bg-gray-50 dark:bg-gray-900 p-4">
-                <div className="space-y-2 font-mono text-sm">
-                  {filteredLogs.map((log) => (
-                    <div
-                      key={log.id}
-                      className={`p-3 rounded-l-lg border-l-4 transition-colors duration-200 ${
-                        log.level === 'error' ? 'border-red-500 bg-red-50 dark:bg-red-900/30 dark:border-red-400' :
-                        log.level === 'warn' ? 'border-yellow-500 bg-yellow-50 dark:bg-yellow-900/30 dark:border-yellow-400' :
-                        log.level === 'info' ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30 dark:border-blue-400' :
-                        log.level === 'debug' ? 'border-gray-400 bg-gray-50 dark:bg-gray-800/50 dark:border-gray-500' :
-                        'border-gray-300 bg-gray-50 dark:bg-gray-800/50'
-                      }`}
-                    >
-                      <div className="flex items-start space-x-3">
-                        {/* Log level badge */}
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium flex-shrink-0 mt-0.5 ${
-                          log.level === 'error' ? 'bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-300' :
-                          log.level === 'warn' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/50 dark:text-yellow-300' :
-                          log.level === 'info' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300' :
-                          log.level === 'debug' ? 'bg-gray-100 text-gray-800 dark:bg-gray-700/50 dark:text-gray-300' :
-                          'bg-gray-100 text-gray-800 dark:bg-gray-700/50 dark:text-gray-300'
-                        }`}>
-                          {log.level.toUpperCase()}
-                        </span>
-
-                        {/* Timestamp */}
-                        <span className="text-xs text-gray-500 dark:text-gray-400 flex-shrink-0 mt-0.5 min-w-fit">
-                          {log.timestamp}
-                        </span>
-
-                        {/* Log content */}
-                        <span className="flex-1 text-gray-900 dark:text-white leading-relaxed" style={{
-                          wordBreak: 'break-word',
-                          overflowWrap: 'break-word',
-                          whiteSpace: 'pre-wrap',
-                          minWidth: 0
-                        }}>
-                          {log.formatted_content || log.content}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+              <div className="flex-1 overflow-hidden bg-gray-50 dark:bg-gray-900">
+                 <LogList 
+                    logs={filteredLogs} 
+                    theme={theme} 
+                    autoScroll={autoScroll} 
+                 />
               </div>
             )}
           </div>

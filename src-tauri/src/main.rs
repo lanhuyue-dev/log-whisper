@@ -21,6 +21,7 @@ use std::path::PathBuf;
 // 模块导入
 mod config;
 mod plugins;
+mod tail;
 
 // 具体导入
 use config::{ConfigService, ThemeMode};
@@ -36,6 +37,8 @@ pub struct AppState {
     pub config_service: Arc<Mutex<ConfigService>>,
     /// 增强插件管理器，负责日志解析插件的管理和调用
     pub plugin_manager: Arc<EnhancedPluginManager>,
+    /// Tail 任务停止器
+    pub tail_stopper: Arc<Mutex<Option<tail::TailStopper>>>,
 }
 
 impl AppState {
@@ -79,6 +82,7 @@ impl AppState {
         Ok(Self {
             config_service,
             plugin_manager,
+            tail_stopper: Arc::new(Mutex::new(None)),
         })
     }
 }
@@ -1965,7 +1969,11 @@ async fn main() {
 
             // 文件系统操作命令
             read_text_file,
-            write_file
+            write_file,
+
+            // Tail 命令
+            tail::start_tail,
+            tail::stop_tail
         ])
         .run(tauri::generate_context!())
         .expect("🔥 Tauri应用运行失败，请检查配置");

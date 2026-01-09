@@ -50,33 +50,22 @@ export const LogViewer: React.FC<LogViewerProps> = ({ tab, isActive }) => {
 
   // 启动/停止 Tail
   useEffect(() => {
-    // 只有当组件挂载时才启动 tail
-    // TODO: 如何处理多个 tab 同时 tail? 后端目前的设计是全局单例的 stopper
-    // 这意味着我们目前只能支持 ONE active tail at a time!
-    // 这是一个架构限制。我们需要修改后端支持多个 tail sessions。
-    
-    // 暂时 workaround: 只有 active tab 才能 tail。
-    // 当切换 tab 时，停止上一个，启动这一个。
-    
-    if (!isActive) return;
+    // Session ID 即 Tab ID
+    const sessionId = tab.id;
 
     const startTail = async () => {
       try {
-        console.log(`Starting tail for ${tab.target} (${tab.type})`);
-        // 先停止所有 (后端目前是全局互斥的)
-        // await invoke('stop_tail');
-        // await invoke('stop_docker_tail');
-        // await invoke('stop_k8s_tail');
-
+        console.log(`Starting tail for ${tab.target} (${tab.type}) Session: ${sessionId}`);
+        
         if (tab.type === 'docker') {
-          await invoke('start_docker_tail', { containerId: tab.target });
+          await invoke('start_docker_tail', { sessionId, containerId: tab.target });
         } else if (tab.type === 'k8s') {
-           const { namespace, podName } = tab.metadata || {}; // Safety check
+           const { namespace, podName } = tab.metadata || {}; 
            if (namespace && podName) {
-             await invoke('start_k8s_tail', { namespace, podName, containerName: null });
+             await invoke('start_k8s_tail', { sessionId, namespace, podName, containerName: null });
            }
         } else if (tab.type === 'file') {
-           await invoke('start_tail', { filePath: tab.target });
+           await invoke('start_tail', { sessionId, filePath: tab.target });
         }
       } catch (e) {
         console.error('Failed to start tail:', e);
@@ -86,40 +75,39 @@ export const LogViewer: React.FC<LogViewerProps> = ({ tab, isActive }) => {
     startTail();
 
     return () => {
-      // Cleanup? 
-      // 如果我们切换 tab，新的 tab 会在它的 effect 里调用 stop -> start
-      // 但如果 tab 关闭，我们需要 stop
+      // 当组件卸载（Tab关闭）时，发送停止信号
+      // 注意：如果是 Tab 隐藏（KeepAlive），这个 Effect 可能不会触发 cleanup (取决于父组件如何渲染)
+      // 在我们的 EditorArea 实现中，hidden tab 并没有卸载，只是 display: none。
+      // 所以只有 Tab 被关闭时才会触发 cleanup。
+      console.log(`Stopping tail session: ${sessionId}`);
+      invoke('stop_tail', { sessionId }).catch(console.error);
+      invoke('stop_docker_tail', { sessionId }).catch(console.error);
+      invoke('stop_k8s_tail', { sessionId }).catch(console.error);
+      invoke('stop_journal_tail', { sessionId }).catch(console.error);
     };
-  }, [isActive, tab]);
+  }, [tab]); // 依赖项只有 tab，这意味着只要 Tab 存在，Tail 就一直运行
 
   // 监听事件
   useEffect(() => {
     let unlisten: (() => void) | null = null;
 
     const setupListener = async () => {
-      // 注意：所有 tabs 都在监听同一个 'tail-update' 事件！
-      // 后端广播给所有窗口。
-      // 我们需要过滤吗？后端目前没有在 event payload 里带 source ID。
-      // LogEntry.metadata 里可能有 container name / pod name。
-      
       unlisten = await listen<LogEntry[]>('tail-update', (event) => {
-        if (!isActive) return; // 只处理 active tab 的更新 (配合上面的 workaround)
-
         const newEntries = event.payload;
-        // 简单过滤：如果 metadata 匹配当前 tab
-        // 这需要后端配合。目前先假设因为只有 active tab 启动了 tail，所以收到的就是它的。
+        // 过滤：只处理属于当前 Session 的日志
+        // 后端 LogEntry.metadata._session_id
+        const myEntries = newEntries.filter(e => e.metadata?.['_session_id'] === tab.id);
         
-        if (newEntries.length > 0) {
-          const newLogLines = newEntries.map(convertToLogLine);
+        if (myEntries.length > 0) {
+          const newLogLines = myEntries.map(convertToLogLine);
           
-          // 修正行号 (如果是 stream，累加)
           setLogs(prev => {
             const startLine = prev.length + 1;
             const fixedLines = newLogLines.map((l, i) => ({
                 ...l,
                 lineNumber: startLine + i
             }));
-            return [...prev, ...fixedLines].slice(-10000); // 限制 10k 行
+            return [...prev, ...fixedLines].slice(-10000); 
           });
         }
       });
@@ -130,7 +118,7 @@ export const LogViewer: React.FC<LogViewerProps> = ({ tab, isActive }) => {
     return () => {
       if (unlisten) unlisten();
     };
-  }, [isActive, tab]);
+  }, [tab]);
 
   return (
     <div className="h-full w-full flex flex-col">

@@ -25,11 +25,14 @@ mod tail;
 mod journald;
 mod docker;
 mod k8s;
+mod session;
 
 // 具体导入
 use config::{ConfigService, ThemeMode};
 use plugins::core::EnhancedPluginManager;
 use plugins::LogEntry as PluginLogEntry;
+
+use session::TailSessionManager;
 
 /// 应用程序全局状态
 ///
@@ -40,14 +43,8 @@ pub struct AppState {
     pub config_service: Arc<Mutex<ConfigService>>,
     /// 增强插件管理器，负责日志解析插件的管理和调用
     pub plugin_manager: Arc<EnhancedPluginManager>,
-    /// Tail 任务停止器
-    pub tail_stopper: Arc<Mutex<Option<tail::TailStopper>>>,
-    /// Journald 任务停止器
-    pub journal_stopper: Arc<Mutex<Option<journald::JournalStopper>>>,
-    /// Docker 任务停止器
-    pub docker_stopper: Arc<Mutex<Option<docker::DockerStopper>>>,
-    /// K8s 任务停止器
-    pub k8s_stopper: Arc<Mutex<Option<k8s::K8sStopper>>>,
+    /// 会话管理器，统一管理所有的 Tail 任务
+    pub session_manager: Arc<Mutex<TailSessionManager>>,
 }
 
 impl AppState {
@@ -91,10 +88,7 @@ impl AppState {
         Ok(Self {
             config_service,
             plugin_manager,
-            tail_stopper: Arc::new(Mutex::new(None)),
-            journal_stopper: Arc::new(Mutex::new(None)),
-            docker_stopper: Arc::new(Mutex::new(None)),
-            k8s_stopper: Arc::new(Mutex::new(None)),
+            session_manager: Arc::new(Mutex::new(TailSessionManager::new())),
         })
     }
 }

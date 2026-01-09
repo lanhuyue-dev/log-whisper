@@ -13,9 +13,6 @@ use crate::AppState;
 use crate::plugins::LogEntry;
 use crate::plugins::analysis::{analyze_log_content, inject_analysis_metadata};
 
-// 停止信号发送器
-pub type K8sStopper = tokio::sync::oneshot::Sender<()>;
-
 #[derive(Debug, Serialize, Deserialize)]
 pub struct K8sPodInfo {
     pub name: String,
@@ -91,30 +88,29 @@ pub async fn get_k8s_pods(namespace: String) -> Result<Vec<K8sPodInfo>, String> 
 /// 开始监听 K8s Pod 日志
 #[tauri::command]
 pub async fn start_k8s_tail(
+    session_id: String,
     namespace: String,
     pod_name: String,
-    container_name: Option<String>, // 可选，如果 Pod 有多个容器
+    container_name: Option<String>, 
     window: tauri::Window,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
-    info!("☸️ 开始监听 Pod 日志: {}/{}", namespace, pod_name);
+    info!("☸️ 开始监听 Pod 日志: {}/{} (Session: {})", namespace, pod_name, session_id);
 
-    // 1. 如果已有监听任务，先停止
-    stop_k8s_tail(state.clone()).await?;
-
-    // 2. 创建停止信号通道
+    // 1. 创建停止信号通道
     let (tx, mut rx) = tokio::sync::oneshot::channel::<()>();
 
-    // 3. 保存停止信号发送器
+    // 2. 添加到 SessionManager
     {
-        let mut stopper = state.k8s_stopper.lock().await;
-        *stopper = Some(tx);
+        let mut manager = state.session_manager.lock().await;
+        manager.add_session(session_id.clone(), tx);
     }
 
-    // 4. 启动异步任务
+    // 3. 启动异步任务
     let ns_clone = namespace.clone();
     let pod_clone = pod_name.clone();
     let container_clone = container_name.clone();
+    let session_id_clone = session_id.clone();
 
     tokio::spawn(async move {
         let client = match get_client().await {
@@ -131,11 +127,10 @@ pub async fn start_k8s_tail(
             container: container_clone,
             follow: true,
             tail_lines: Some(100),
-            timestamps: true, // 请求 K8s 返回时间戳
+            timestamps: true, 
             ..LogParams::default()
         };
 
-        // 获取日志流
         let mut stream = match pods.log_stream(&pod_clone, &log_params).await {
             Ok(s) => s,
             Err(e) => {
@@ -145,17 +140,6 @@ pub async fn start_k8s_tail(
             }
         };
 
-        // K8s log stream 返回的是 Bytes
-        // 我们需要按行处理。由于 stream 可能是 chunked bytes，我们需要一个 buffer 来处理分行
-        // 为了简单，我们假设 K8s log stream 通常是按行或者是完整的文本块
-        // 但严谨的做法是使用 `tokio_util::codec::FramedRead` 配合 `LinesCodec`
-        
-        // 实际上 kube::api::LogStream 是 impl Stream<Item = Result<Bytes>>
-        // 我们可以使用 lines() 适配器如果它是 AsyncBufRead，但它不是。
-        // 我们这里简单处理：将 Bytes 转换为 String，然后 split lines。
-        // 注意：这可能处理不好跨 chunk 的行。
-        // TODO: 使用正确的分帧处理。
-        
         loop {
             tokio::select! {
                 _ = &mut rx => {
@@ -165,18 +149,13 @@ pub async fn start_k8s_tail(
                 item = stream.next() => {
                     match item {
                         Some(Ok(bytes)) => {
-                            // 将 bytes 转换为 string
                             let chunk = String::from_utf8_lossy(&bytes);
                             
-                            // 处理每一行
                             for line in chunk.lines() {
                                 if line.trim().is_empty() { continue; }
                                 
-                                // 处理 K8s/Docker 的时间戳格式 (RFC3339 nano + space + content)
-                                // K8s timestamps: true 输出: "2023-01-01T00:00:00.000Z log content"
                                 let (ts, content) = if let Some(idx) = line.find(' ') {
                                     let (t, c) = line.split_at(idx);
-                                    // 简单验证 t 是否像时间戳
                                     if t.len() > 10 && t.contains('T') {
                                         (Some(t.to_string()), c.trim_start().to_string())
                                     } else {
@@ -196,21 +175,17 @@ pub async fn start_k8s_tail(
                                     processed_by: vec!["k8s".to_string()],
                                 };
 
-                                // 注入 K8s 元数据
                                 entry.metadata.insert("namespace".to_string(), ns_clone.clone());
                                 entry.metadata.insert("pod".to_string(), pod_clone.clone());
+                                entry.metadata.insert("_session_id".to_string(), session_id_clone.clone());
 
-                                // 智能分析 (Trace ID, Duration, Level)
-                                // 尝试简单的 Level 提取
                                 if let Some(l) = crate::plugins::docker_json::extract_level_from_log(&content) {
                                     entry.level = Some(l);
                                 }
                                 
-                                // 深度分析
                                 let analysis = analyze_log_content(&content);
                                 inject_analysis_metadata(&mut entry.metadata, analysis);
 
-                                // 发送
                                 let _ = window.emit("tail-update", vec![entry]);
                             }
                         }
@@ -233,11 +208,11 @@ pub async fn start_k8s_tail(
 
 /// 停止监听 K8s
 #[tauri::command]
-pub async fn stop_k8s_tail(state: tauri::State<'_, AppState>) -> Result<(), String> {
-    let mut stopper = state.k8s_stopper.lock().await;
-    if let Some(tx) = stopper.take() {
-        let _ = tx.send(());
-        info!("🛑 发送 K8s 停止信号");
-    }
+pub async fn stop_k8s_tail(
+    session_id: String,
+    state: tauri::State<'_, AppState>
+) -> Result<(), String> {
+    let mut manager = state.session_manager.lock().await;
+    manager.stop_session(&session_id);
     Ok(())
 }

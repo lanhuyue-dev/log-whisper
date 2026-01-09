@@ -1,42 +1,37 @@
 use std::io::{Seek, SeekFrom, BufReader, BufRead};
 use std::sync::Arc;
-use std::time::Duration;
 use tokio::sync::Mutex;
 use tauri::Manager;
-use log::{info, error, debug, warn};
+use log::{info, error, debug};
 use std::fs::File;
 use notify::{Watcher, RecursiveMode, RecommendedWatcher, Config};
+use std::collections::HashMap;
 
 use crate::AppState;
-use crate::plugins::{LogEntry, LogLine};
-
-// 停止信号发送器
-pub type TailStopper = tokio::sync::oneshot::Sender<()>;
+use crate::plugins::LogEntry;
 
 /// 开始监听日志文件
 #[tauri::command]
 pub async fn start_tail(
+    session_id: String,
     file_path: String,
     window: tauri::Window,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
-    info!("🚀 开始监听文件: {}", file_path);
+    info!("🚀 开始监听文件: {} (Session: {})", file_path, session_id);
 
-    // 1. 如果已有监听任务，先停止
-    stop_tail(state.clone()).await?;
-
-    // 2. 创建停止信号通道
+    // 1. 创建停止信号通道
     let (tx, mut rx) = tokio::sync::oneshot::channel::<()>();
 
-    // 3. 保存停止信号发送器到 State
+    // 2. 添加到 SessionManager
     {
-        let mut stopper = state.tail_stopper.lock().await;
-        *stopper = Some(tx);
+        let mut manager = state.session_manager.lock().await;
+        manager.add_session(session_id.clone(), tx);
     }
 
-    // 4. 启动异步任务
+    // 3. 启动异步任务
     let file_path_clone = file_path.clone();
-    let plugin_manager = state.plugin_manager.clone();
+    let session_id_clone = session_id.clone();
     
     tokio::spawn(async move {
         debug!("👀 Tail 任务启动: {}", file_path_clone);
@@ -122,19 +117,17 @@ pub async fn start_tail(
                                                     debug!("📥 读取到 {} 行新日志", new_lines.len());
                                                     
                                                     // 解析新行
-                                                    // 这里简单起见，先用自动检测，或者复用之前的检测结果（这需要状态）
-                                                    // 为了简单，我们先逐行处理，或者批量处理
-                                                    // 构造 LogLine
                                                     let log_entries: Vec<LogEntry> = new_lines.into_iter().enumerate().map(|(i, line)| {
-                                                        // 简单的提取逻辑，实际应该调用 plugin_manager
-                                                        // 但因为是流式的，不需要太复杂的全量检测
+                                                        let mut metadata = HashMap::new();
+                                                        metadata.insert("_session_id".to_string(), session_id_clone.clone());
+                                                        
                                                         LogEntry {
-                                                            line_number: 0, // 流式日志行号比较难追踪，除非我们维护状态
+                                                            line_number: 0,
                                                             content: line.clone(),
                                                             timestamp: None, // TODO: 提取
                                                             level: None, // TODO: 提取
                                                             formatted_content: Some(line),
-                                                            metadata: std::collections::HashMap::new(),
+                                                            metadata,
                                                             processed_by: vec!["tail".to_string()],
                                                         }
                                                     }).collect();
@@ -163,11 +156,12 @@ pub async fn start_tail(
 
 /// 停止监听
 #[tauri::command]
-pub async fn stop_tail(state: tauri::State<'_, AppState>) -> Result<(), String> {
-    let mut stopper = state.tail_stopper.lock().await;
-    if let Some(tx) = stopper.take() {
-        let _ = tx.send(());
-        info!("🛑 发送停止信号");
-    }
+pub async fn stop_tail(
+    session_id: String,
+    state: tauri::State<'_, AppState>
+) -> Result<(), String> {
+    let mut manager = state.session_manager.lock().await;
+    manager.stop_session(&session_id);
+    info!("🛑 发送停止信号 (Session: {})", session_id);
     Ok(())
 }

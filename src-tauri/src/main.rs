@@ -24,6 +24,7 @@ mod plugins;
 mod tail;
 mod journald;
 mod docker;
+mod k8s;
 
 // 具体导入
 use config::{ConfigService, ThemeMode};
@@ -45,6 +46,8 @@ pub struct AppState {
     pub journal_stopper: Arc<Mutex<Option<journald::JournalStopper>>>,
     /// Docker 任务停止器
     pub docker_stopper: Arc<Mutex<Option<docker::DockerStopper>>>,
+    /// K8s 任务停止器
+    pub k8s_stopper: Arc<Mutex<Option<k8s::K8sStopper>>>,
 }
 
 impl AppState {
@@ -91,6 +94,7 @@ impl AppState {
             tail_stopper: Arc::new(Mutex::new(None)),
             journal_stopper: Arc::new(Mutex::new(None)),
             docker_stopper: Arc::new(Mutex::new(None)),
+            k8s_stopper: Arc::new(Mutex::new(None)),
         })
     }
 }
@@ -2044,7 +2048,13 @@ async fn main() {
             // Docker 命令
             docker::get_containers,
             docker::start_docker_tail,
-            docker::stop_docker_tail
+            docker::stop_docker_tail,
+
+            // K8s 命令
+            k8s::get_k8s_namespaces,
+            k8s::get_k8s_pods,
+            k8s::start_k8s_tail,
+            k8s::stop_k8s_tail
         ])
         .run(tauri::generate_context!())
         .expect("🔥 Tauri应用运行失败，请检查配置");

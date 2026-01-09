@@ -45,6 +45,22 @@ use crate::plugins::formatter::UnifiedFormatter;
 use std::collections::HashMap;
 use serde_json;
 
+/// 暴露 extract_level_from_log 供其他模块使用
+pub fn extract_level_from_log(log: &str) -> Option<String> {
+    let log_lower = log.to_lowercase();
+    if log_lower.contains("error") || log_lower.contains("err") {
+        Some("ERROR".to_string())
+    } else if log_lower.contains("warn") || log_lower.contains("warning") {
+        Some("WARN".to_string())
+    } else if log_lower.contains("info") {
+        Some("INFO".to_string())
+    } else if log_lower.contains("debug") {
+        Some("DEBUG".to_string())
+    } else {
+        None
+    }
+}
+
 /// Docker JSON日志解析器实现
 ///
 /// 这是一个无状态的结构体，专门处理Docker容器的JSON格式日志输出。

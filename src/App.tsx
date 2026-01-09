@@ -60,7 +60,7 @@ function App() {
   const [theme, setTheme] = useState<'light' | 'dark'>('light')
   const [currentFile, setCurrentFile] = useState<string | null>(null)
   const [autoScroll, setAutoScroll] = useState(true)
-  const [dataSource, setDataSource] = useState<'file' | 'journald' | 'docker'>('file')
+  const [dataSource, setDataSource] = useState<'file' | 'journald' | 'docker' | 'k8s'>('file')
   const [journalUnit, setJournalUnit] = useState<string>('')
   const [isJournalConnecting, setIsJournalConnecting] = useState(false)
   
@@ -74,6 +74,26 @@ function App() {
     state: string;
     status: string;
   }
+  
+  // K8s 状态
+  interface K8sPodInfo {
+    name: string;
+    namespace: string;
+    status: string;
+    restart_count: number;
+    start_time?: string;
+  }
+
+  interface K8sNamespaceInfo {
+    name: string;
+    status: string;
+  }
+
+  const [namespaces, setNamespaces] = useState<string[]>(['default'])
+  const [selectedNamespace, setSelectedNamespace] = useState('default')
+  const [pods, setPods] = useState<K8sPodInfo[]>([])
+  const [selectedPod, setSelectedPod] = useState<string | null>(null)
+  const [isK8sLoading, setIsK8sLoading] = useState(false)
   
   const [containers, setContainers] = useState<ContainerInfo[]>([])
   const [selectedContainerId, setSelectedContainerId] = useState<string | null>(null)
@@ -210,25 +230,80 @@ function App() {
     }
   };
 
+  // 获取 K8s Namespaces
+  const loadNamespaces = async () => {
+    try {
+      const list = await invoke<K8sNamespaceInfo[]>('get_k8s_namespaces');
+      setNamespaces(list.map(n => n.name));
+    } catch (e) {
+      console.error('❌ 获取 Namespaces 失败:', e);
+      // Fallback to default if fail (maybe RBAC issue)
+      setNamespaces(['default', 'kube-system']);
+    }
+  };
+
+  // 获取 K8s Pods
+  const loadPods = async (ns: string) => {
+    setIsK8sLoading(true);
+    setPods([]);
+    try {
+      console.log('☸️ 获取 Pods:', ns);
+      const list = await invoke<K8sPodInfo[]>('get_k8s_pods', { namespace: ns });
+      setPods(list);
+    } catch (e) {
+      console.error('❌ 获取 Pods 失败:', e);
+      setError(`获取 Pods 失败: ${e}`);
+    } finally {
+      setIsK8sLoading(false);
+    }
+  };
+
+  // 监听 Pod 日志
+  const handlePodSelect = async (podName: string) => {
+    if (selectedPod === podName) return;
+
+    try {
+      await invoke('stop_k8s_tail');
+      
+      setSelectedPod(podName);
+      setLogs([]); 
+      
+      console.log('☸️ 开始监听 Pod:', podName);
+      await invoke('start_k8s_tail', { 
+        namespace: selectedNamespace,
+        podName: podName,
+        containerName: null // TODO: Support multi-container selection
+      });
+    } catch (e) {
+      console.error('❌ 监听 Pod 失败:', e);
+      setError(`监听 Pod 失败: ${e}`);
+    }
+  };
+
   // 切换数据源
-  const handleDataSourceChange = async (source: 'file' | 'journald' | 'docker') => {
+  const handleDataSourceChange = async (source: 'file' | 'journald' | 'docker' | 'k8s') => {
     // 停止所有正在运行的任务
     try {
       await invoke('stop_tail');
       await invoke('stop_journal_tail');
       await invoke('stop_docker_tail');
+      await invoke('stop_k8s_tail');
     } catch (e) {
       console.error('停止任务失败:', e);
     }
     
     setDataSource(source);
-    setLogs([]); // 清空日志
+    setLogs([]); 
     setCurrentFile(null);
     setIsJournalConnecting(false);
     setSelectedContainerId(null);
+    setSelectedPod(null);
 
     if (source === 'docker') {
         loadContainers();
+    } else if (source === 'k8s') {
+        await loadNamespaces();
+        loadPods(selectedNamespace);
     }
   };
 
@@ -501,6 +576,16 @@ function App() {
               >
                 Docker
               </button>
+              <button
+                onClick={() => handleDataSourceChange('k8s')}
+                className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${
+                  dataSource === 'k8s' 
+                    ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm' 
+                    : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                }`}
+              >
+                K8s
+              </button>
             </div>
 
             {/* 文件操作 - 仅在 file 模式显示 */}
@@ -640,6 +725,43 @@ function App() {
                   {containers.length === 0 && !isDockerConnecting && (
                     <div className="text-center p-4 text-gray-500 text-sm">
                       未发现容器或无法连接 Docker
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* K8s Pod 列表 */}
+            {dataSource === 'k8s' && (
+              <div className="flex-1 flex flex-col min-h-0 border-b border-gray-200 dark:border-gray-700">
+                <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+                  <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">Pods ({pods.length})</h4>
+                </div>
+                <div className="flex-1 overflow-y-auto p-2 space-y-1">
+                  {pods.map(pod => (
+                    <button
+                      key={pod.name}
+                      onClick={() => handlePodSelect(pod.name)}
+                      className={`w-full text-left p-2 rounded-md text-xs transition-colors flex flex-col space-y-1 ${
+                        selectedPod === pod.name
+                          ? 'bg-blue-100 dark:bg-blue-900/30 border-blue-500 border-l-2'
+                          : 'hover:bg-gray-100 dark:hover:bg-gray-700 border-transparent border-l-2'
+                      }`}
+                    >
+                      <div className="flex justify-between items-center">
+                        <span className="font-bold text-gray-900 dark:text-gray-100 truncate">{pod.name}</span>
+                        <span className={`w-2 h-2 rounded-full ${pod.status === 'Running' ? 'bg-green-500' : pod.status === 'Pending' ? 'bg-yellow-500' : 'bg-red-500'}`}></span>
+                      </div>
+                      <div className="flex justify-between text-gray-500 dark:text-gray-400 text-[10px]">
+                         <span>{pod.status}</span>
+                         <span>Restarts: {pod.restart_count}</span>
+                      </div>
+                    </button>
+                  ))}
+                  
+                  {pods.length === 0 && !isK8sLoading && (
+                    <div className="text-center p-4 text-gray-500 text-sm">
+                      当前 Namespace 无 Pod 或无法连接集群
                     </div>
                   )}
                 </div>

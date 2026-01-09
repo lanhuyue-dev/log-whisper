@@ -42,6 +42,7 @@ pub mod formatter;   // 格式化工具 - 统一日志格式化显示
 pub mod chain;       // 插件链核心实现 - Filter Chain机制
 pub mod filters;     // 具体过滤器实现 - 各种日志处理过滤器
 pub mod presets;     // 预定义链配置 - 常用场景的链配置
+pub mod analysis;    // 日志分析工具 - Trace ID 和性能分析
 
 // 测试模块
 #[cfg(test)]

@@ -12,6 +12,7 @@ interface LogLine {
   timestamp: string
   formatted: string
   lineNumber: number
+  metadata?: Record<string, string>
 }
 
 interface ParseResult {
@@ -31,6 +32,7 @@ interface LogEntry {
   thread?: string
   logger?: string
   message?: string
+  metadata?: Record<string, string>
 }
 
 interface ParseStats {
@@ -61,6 +63,8 @@ function App() {
   const [dataSource, setDataSource] = useState<'file' | 'journald' | 'docker'>('file')
   const [journalUnit, setJournalUnit] = useState<string>('')
   const [isJournalConnecting, setIsJournalConnecting] = useState(false)
+  
+  const [contextModal, setContextModal] = useState<{ isOpen: boolean; logs: LogLine[] } | null>(null)
   
   // Docker 状态
   interface ContainerInfo {
@@ -320,7 +324,8 @@ function App() {
       level: entry.level || 'info',
       timestamp: entry.timestamp || '',
       formatted: entry.formatted_content || entry.content,
-      lineNumber: entry.line_number
+      lineNumber: entry.line_number,
+      metadata: entry.metadata
     }))
   }
 
@@ -424,6 +429,16 @@ function App() {
       setIsLoading(false)
     }
   }
+
+  // 显示上下文
+  const handleShowContext = (lineNumber: number) => {
+    const targetIndex = lineNumber - 1;
+    const start = Math.max(0, targetIndex - 10);
+    const end = Math.min(logs.length, targetIndex + 11);
+    
+    const contextLogs = logs.slice(start, end);
+    setContextModal({ isOpen: true, logs: contextLogs });
+  };
 
   // 过滤日志
   const filteredLogs = logs.filter(log => {
@@ -725,12 +740,37 @@ function App() {
                     logs={filteredLogs} 
                     theme={theme} 
                     autoScroll={autoScroll} 
+                    onShowContext={handleShowContext}
                  />
               </div>
             )}
           </div>
         </main>
       </div>
+
+      {/* Context Modal */}
+      {contextModal?.isOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-5xl mx-4 max-h-[80vh] flex flex-col">
+            <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
+              <h3 className="text-lg font-medium text-gray-900 dark:text-white">日志上下文</h3>
+              <button
+                onClick={() => setContextModal(null)}
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+              >
+                ✖️
+              </button>
+            </div>
+            <div className="flex-1 p-0 overflow-hidden">
+               <LogList 
+                  logs={contextModal.logs} 
+                  theme={theme} 
+                  autoScroll={false} 
+               />
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 粘贴对话框 */}
       {showPasteDialog && (

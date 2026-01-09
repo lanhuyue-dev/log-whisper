@@ -10,6 +10,7 @@ use std::collections::HashMap;
 
 use crate::AppState;
 use crate::plugins::LogEntry;
+use crate::plugins::analysis::{analyze_log_content, inject_analysis_metadata};
 
 // 停止信号发送器
 pub type DockerStopper = tokio::sync::oneshot::Sender<()>;
@@ -231,8 +232,14 @@ pub async fn start_docker_tail(
                             } else {
                                 // 非 JSON，尝试简单的级别提取
                                 entry.level = extract_level_simple(&content_body);
-                                entry.formatted_content = Some(content_body);
+                                entry.formatted_content = Some(content_body.clone());
                             }
+
+                            // 执行深度分析 (Trace ID, Duration)
+                            // 分析目标：优先分析格式化后的内容(msg)，如果没有则分析原始内容
+                            let content_to_analyze = entry.formatted_content.as_deref().unwrap_or(&content_body);
+                            let analysis = analyze_log_content(content_to_analyze);
+                            inject_analysis_metadata(&mut entry.metadata, analysis);
 
                             // 添加容器名称到 metadata
                             entry.metadata.insert("container".to_string(), container_name.clone());

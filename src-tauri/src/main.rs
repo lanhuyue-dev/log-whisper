@@ -23,6 +23,7 @@ mod config;
 mod plugins;
 mod tail;
 mod journald;
+mod docker;
 
 // 具体导入
 use config::{ConfigService, ThemeMode};
@@ -42,6 +43,8 @@ pub struct AppState {
     pub tail_stopper: Arc<Mutex<Option<tail::TailStopper>>>,
     /// Journald 任务停止器
     pub journal_stopper: Arc<Mutex<Option<journald::JournalStopper>>>,
+    /// Docker 任务停止器
+    pub docker_stopper: Arc<Mutex<Option<docker::DockerStopper>>>,
 }
 
 impl AppState {
@@ -87,6 +90,7 @@ impl AppState {
             plugin_manager,
             tail_stopper: Arc::new(Mutex::new(None)),
             journal_stopper: Arc::new(Mutex::new(None)),
+            docker_stopper: Arc::new(Mutex::new(None)),
         })
     }
 }
@@ -2035,7 +2039,12 @@ async fn main() {
             
             // Journald 命令
             journald::start_journal_tail,
-            journald::stop_journal_tail
+            journald::stop_journal_tail,
+
+            // Docker 命令
+            docker::get_containers,
+            docker::start_docker_tail,
+            docker::stop_docker_tail
         ])
         .run(tauri::generate_context!())
         .expect("🔥 Tauri应用运行失败，请检查配置");

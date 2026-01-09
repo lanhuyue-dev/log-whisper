@@ -54,6 +54,7 @@ rusqlite = { version = "0.31", features = ["bundled"] }
 # 系统目录
 dirs = "5.0"
 notify = "8.2.0"
+bollard = "0.19.4"
 
 [features]
 default = ["custom-protocol"]

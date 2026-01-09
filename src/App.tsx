@@ -58,9 +58,22 @@ function App() {
   const [theme, setTheme] = useState<'light' | 'dark'>('light')
   const [currentFile, setCurrentFile] = useState<string | null>(null)
   const [autoScroll, setAutoScroll] = useState(true)
-  const [dataSource, setDataSource] = useState<'file' | 'journald'>('file')
+  const [dataSource, setDataSource] = useState<'file' | 'journald' | 'docker'>('file')
   const [journalUnit, setJournalUnit] = useState<string>('')
   const [isJournalConnecting, setIsJournalConnecting] = useState(false)
+  
+  // Docker 状态
+  interface ContainerInfo {
+    id: string;
+    name: string;
+    image: string;
+    state: string;
+    status: string;
+  }
+  
+  const [containers, setContainers] = useState<ContainerInfo[]>([])
+  const [selectedContainerId, setSelectedContainerId] = useState<string | null>(null)
+  const [isDockerConnecting, setIsDockerConnecting] = useState(false)
 
   // 检查后端状态
   useEffect(() => {
@@ -158,12 +171,48 @@ function App() {
     }
   }
 
+  // 获取容器列表
+  const loadContainers = async () => {
+    setIsDockerConnecting(true);
+    try {
+      console.log('🐳 获取容器列表...');
+      const list = await invoke<ContainerInfo[]>('get_containers');
+      setContainers(list);
+      console.log('✅ 获取到', list.length, '个容器');
+    } catch (e) {
+      console.error('❌ 获取容器列表失败:', e);
+      setError(`获取容器列表失败: ${e}`);
+    } finally {
+      setIsDockerConnecting(false);
+    }
+  };
+
+  // 监听容器日志
+  const handleContainerSelect = async (containerId: string) => {
+    if (selectedContainerId === containerId) return; // 已经选中
+
+    try {
+      // 停止之前的
+      await invoke('stop_docker_tail');
+      
+      setSelectedContainerId(containerId);
+      setLogs([]); // 清空日志
+      
+      console.log('🐳 开始监听容器:', containerId);
+      await invoke('start_docker_tail', { containerId });
+    } catch (e) {
+      console.error('❌ 监听容器失败:', e);
+      setError(`监听容器失败: ${e}`);
+    }
+  };
+
   // 切换数据源
-  const handleDataSourceChange = async (source: 'file' | 'journald') => {
+  const handleDataSourceChange = async (source: 'file' | 'journald' | 'docker') => {
     // 停止所有正在运行的任务
     try {
       await invoke('stop_tail');
       await invoke('stop_journal_tail');
+      await invoke('stop_docker_tail');
     } catch (e) {
       console.error('停止任务失败:', e);
     }
@@ -172,6 +221,11 @@ function App() {
     setLogs([]); // 清空日志
     setCurrentFile(null);
     setIsJournalConnecting(false);
+    setSelectedContainerId(null);
+
+    if (source === 'docker') {
+        loadContainers();
+    }
   };
 
   // 启动 Journald 监听
@@ -422,6 +476,16 @@ function App() {
               >
                 Journald (Linux)
               </button>
+              <button
+                onClick={() => handleDataSourceChange('docker')}
+                className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${
+                  dataSource === 'docker' 
+                    ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm' 
+                    : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                }`}
+              >
+                Docker
+              </button>
             </div>
 
             {/* 文件操作 - 仅在 file 模式显示 */}
@@ -466,6 +530,20 @@ function App() {
                 >
                   <span>{isJournalConnecting ? '⏹️' : '▶️'}</span>
                   <span>{isJournalConnecting ? '停止' : '连接'}</span>
+                </button>
+              </div>
+            )}
+
+            {/* Docker 操作 - 仅在 docker 模式显示 */}
+            {dataSource === 'docker' && (
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={loadContainers}
+                  disabled={isDockerConnecting}
+                  className="inline-flex items-center space-x-1 px-3 py-1.5 text-sm rounded-md font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 bg-blue-600 hover:bg-blue-700 text-white focus:ring-blue-500 disabled:opacity-50"
+                >
+                  <span>🔄</span>
+                  <span>刷新列表</span>
                 </button>
               </div>
             )}
@@ -517,6 +595,42 @@ function App() {
         <main className="flex flex-1 bg-gray-50 dark:bg-gray-900 min-h-0">
           {/* 左侧导航面板 */}
           <aside className="w-80 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col">
+            
+            {/* Docker 容器列表 */}
+            {dataSource === 'docker' && (
+              <div className="flex-1 flex flex-col min-h-0 border-b border-gray-200 dark:border-gray-700">
+                <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+                  <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">容器列表 ({containers.length})</h4>
+                </div>
+                <div className="flex-1 overflow-y-auto p-2 space-y-1">
+                  {containers.map(container => (
+                    <button
+                      key={container.id}
+                      onClick={() => handleContainerSelect(container.id)}
+                      className={`w-full text-left p-2 rounded-md text-xs transition-colors flex flex-col space-y-1 ${
+                        selectedContainerId === container.id
+                          ? 'bg-blue-100 dark:bg-blue-900/30 border-blue-500 border-l-2'
+                          : 'hover:bg-gray-100 dark:hover:bg-gray-700 border-transparent border-l-2'
+                      }`}
+                    >
+                      <div className="flex justify-between items-center">
+                        <span className="font-bold text-gray-900 dark:text-gray-100 truncate">{container.name}</span>
+                        <span className={`w-2 h-2 rounded-full ${container.state === 'running' ? 'bg-green-500' : 'bg-red-500'}`}></span>
+                      </div>
+                      <div className="text-gray-500 dark:text-gray-400 truncate" title={container.image}>{container.image}</div>
+                      <div className="text-gray-400 dark:text-gray-500 text-[10px] truncate">{container.status}</div>
+                    </button>
+                  ))}
+                  
+                  {containers.length === 0 && !isDockerConnecting && (
+                    <div className="text-center p-4 text-gray-500 text-sm">
+                      未发现容器或无法连接 Docker
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
             {/* 当前文件信息 */}
             {currentFile && (
               <div className="p-4 border-b border-gray-200 dark:border-gray-700">

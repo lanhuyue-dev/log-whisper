@@ -1085,9 +1085,66 @@ async fn get_all_configs(state: tauri::State<'_, AppState>) -> Result<serde_json
     }
 }
 
-// ============================================================================
-// 文件系统操作命令
-// ============================================================================
+#[derive(Debug, Serialize, Deserialize)]
+pub struct FileEntry {
+    name: String,
+    path: String,
+    is_dir: bool,
+    size: Option<u64>,
+}
+
+/// 读取目录内容
+/// 
+/// 如果 path 为 None，则默认读取用户主目录或根目录
+#[tauri::command]
+async fn read_dir(path: Option<String>) -> Result<Vec<FileEntry>, String> {
+    let target_path = if let Some(p) = path {
+        PathBuf::from(p)
+    } else {
+        dirs::home_dir().ok_or("无法获取用户主目录")?
+    };
+
+    info!("📂 读取目录: {:?}", target_path);
+
+    let entries = std::fs::read_dir(&target_path)
+        .map_err(|e| format!("读取目录失败: {}", e))?;
+
+    let mut result = Vec::new();
+
+    for entry in entries {
+        if let Ok(entry) = entry {
+            let path = entry.path();
+            let metadata = entry.metadata().ok();
+            let is_dir = path.is_dir();
+            let name = entry.file_name().to_string_lossy().to_string();
+            
+            // 忽略隐藏文件 (以.开头)
+            if name.starts_with('.') {
+                continue;
+            }
+
+            result.push(FileEntry {
+                name,
+                path: path.to_string_lossy().to_string(),
+                is_dir,
+                size: metadata.map(|m| m.len()),
+            });
+        }
+    }
+
+    // 排序：目录在前，文件在后，按名称排序
+    result.sort_by(|a, b| {
+        if a.is_dir == b.is_dir {
+            a.name.cmp(&b.name)
+        } else if a.is_dir {
+            std::cmp::Ordering::Less
+        } else {
+            std::cmp::Ordering::Greater
+        }
+    });
+
+    Ok(result)
+}
 
 /// 读取文本文件
 ///
@@ -2036,6 +2093,7 @@ async fn main() {
             // 文件系统操作命令
             read_text_file,
             write_file,
+            read_dir,
 
             // Tail 命令
             tail::start_tail,

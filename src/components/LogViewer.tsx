@@ -71,10 +71,12 @@ export const LogViewer: React.FC<LogViewerProps> = ({ tab, isActive }) => {
         if (tab.type === 'docker') {
           await invoke('start_docker_tail', { containerId: tab.target });
         } else if (tab.type === 'k8s') {
-           const { namespace, podName } = tab.metadata;
-           await invoke('start_k8s_tail', { namespace, podName, containerName: null });
+           const { namespace, podName } = tab.metadata || {}; // Safety check
+           if (namespace && podName) {
+             await invoke('start_k8s_tail', { namespace, podName, containerName: null });
+           }
         } else if (tab.type === 'file') {
-           // TODO: Implement file tail
+           await invoke('start_tail', { filePath: tab.target });
         }
       } catch (e) {
         console.error('Failed to start tail:', e);

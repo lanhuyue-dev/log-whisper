@@ -58,6 +58,9 @@ function App() {
   const [theme, setTheme] = useState<'light' | 'dark'>('light')
   const [currentFile, setCurrentFile] = useState<string | null>(null)
   const [autoScroll, setAutoScroll] = useState(true)
+  const [dataSource, setDataSource] = useState<'file' | 'journald'>('file')
+  const [journalUnit, setJournalUnit] = useState<string>('')
+  const [isJournalConnecting, setIsJournalConnecting] = useState(false)
 
   // 检查后端状态
   useEffect(() => {
@@ -154,6 +157,50 @@ function App() {
       document.documentElement.setAttribute('data-theme', backendMode)
     }
   }
+
+  // 切换数据源
+  const handleDataSourceChange = async (source: 'file' | 'journald') => {
+    // 停止所有正在运行的任务
+    try {
+      await invoke('stop_tail');
+      await invoke('stop_journal_tail');
+    } catch (e) {
+      console.error('停止任务失败:', e);
+    }
+    
+    setDataSource(source);
+    setLogs([]); // 清空日志
+    setCurrentFile(null);
+    setIsJournalConnecting(false);
+  };
+
+  // 启动 Journald 监听
+  const handleJournalStart = async () => {
+    if (isJournalConnecting) {
+      // 停止
+      try {
+        await invoke('stop_journal_tail');
+        setIsJournalConnecting(false);
+      } catch (e) {
+        console.error('停止 Journald 失败:', e);
+      }
+      return;
+    }
+
+    setIsJournalConnecting(true);
+    setLogs([]); // 清空当前日志
+    
+    try {
+      console.log('🚀 启动 Journald 监听, unit:', journalUnit);
+      await invoke('start_journal_tail', { 
+        unitFilter: journalUnit.trim() || null 
+      });
+    } catch (e) {
+      console.error('❌ 启动 Journald 失败:', e);
+      setError(`启动 Journald 失败: ${e}`);
+      setIsJournalConnecting(false);
+    }
+  };
 
   // 处理文件选择
   const handleFileSelect = async () => {
@@ -353,25 +400,75 @@ function App() {
               <span className="text-lg font-bold text-gray-900 dark:text-white">LogWhisper</span>
             </div>
 
-            {/* 文件操作 */}
-            <div className="flex items-center space-x-2">
+            {/* 数据源切换 */}
+            <div className="flex bg-gray-100 dark:bg-gray-700 rounded-lg p-1">
               <button
-                onClick={handleFileSelect}
-                disabled={isLoading}
-                className="inline-flex items-center space-x-1 px-3 py-1.5 text-sm rounded-md font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 bg-primary-600 hover:bg-primary-700 text-white focus:ring-primary-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                onClick={() => handleDataSourceChange('file')}
+                className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${
+                  dataSource === 'file' 
+                    ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm' 
+                    : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                }`}
               >
-                <span className="text-sm">📁</span>
-                <span>选择文件</span>
+                文件
               </button>
               <button
-                onClick={() => setShowPasteDialog(true)}
-                disabled={isLoading}
-                className="inline-flex items-center space-x-1 px-3 py-1.5 text-sm rounded-md font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 bg-primary-600 hover:bg-primary-700 text-white focus:ring-primary-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                onClick={() => handleDataSourceChange('journald')}
+                className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${
+                  dataSource === 'journald' 
+                    ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm' 
+                    : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                }`}
               >
-                <span className="text-sm">📋</span>
-                <span>粘贴</span>
+                Journald (Linux)
               </button>
             </div>
+
+            {/* 文件操作 - 仅在 file 模式显示 */}
+            {dataSource === 'file' && (
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={handleFileSelect}
+                  disabled={isLoading}
+                  className="inline-flex items-center space-x-1 px-3 py-1.5 text-sm rounded-md font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 bg-primary-600 hover:bg-primary-700 text-white focus:ring-primary-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <span className="text-sm">📁</span>
+                  <span>选择文件</span>
+                </button>
+                <button
+                  onClick={() => setShowPasteDialog(true)}
+                  disabled={isLoading}
+                  className="inline-flex items-center space-x-1 px-3 py-1.5 text-sm rounded-md font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 bg-primary-600 hover:bg-primary-700 text-white focus:ring-primary-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <span className="text-sm">📋</span>
+                  <span>粘贴</span>
+                </button>
+              </div>
+            )}
+
+            {/* Journald 操作 - 仅在 journald 模式显示 */}
+            {dataSource === 'journald' && (
+              <div className="flex items-center space-x-2">
+                <input
+                  type="text"
+                  placeholder="Unit (如 docker.service)"
+                  value={journalUnit}
+                  onChange={(e) => setJournalUnit(e.target.value)}
+                  className="px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white w-40"
+                />
+                <button
+                  onClick={handleJournalStart}
+                  className={`inline-flex items-center space-x-1 px-3 py-1.5 text-sm rounded-md font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+                    isJournalConnecting
+                      ? 'bg-red-600 hover:bg-red-700 text-white focus:ring-red-500'
+                      : 'bg-green-600 hover:bg-green-700 text-white focus:ring-green-500'
+                  }`}
+                >
+                  <span>{isJournalConnecting ? '⏹️' : '▶️'}</span>
+                  <span>{isJournalConnecting ? '停止' : '连接'}</span>
+                </button>
+              </div>
+            )}
           </div>
 
           {/* 中间：搜索 */}

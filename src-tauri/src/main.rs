@@ -22,6 +22,7 @@ use std::path::PathBuf;
 mod config;
 mod plugins;
 mod tail;
+mod journald;
 
 // 具体导入
 use config::{ConfigService, ThemeMode};
@@ -39,6 +40,8 @@ pub struct AppState {
     pub plugin_manager: Arc<EnhancedPluginManager>,
     /// Tail 任务停止器
     pub tail_stopper: Arc<Mutex<Option<tail::TailStopper>>>,
+    /// Journald 任务停止器
+    pub journal_stopper: Arc<Mutex<Option<journald::JournalStopper>>>,
 }
 
 impl AppState {
@@ -83,6 +86,7 @@ impl AppState {
             config_service,
             plugin_manager,
             tail_stopper: Arc::new(Mutex::new(None)),
+            journal_stopper: Arc::new(Mutex::new(None)),
         })
     }
 }
@@ -1949,6 +1953,60 @@ async fn main() {
 
     tauri::Builder::default()
         .manage(app_state) // 注册全局应用状态
+        .setup(|app| {
+            // 在应用启动时检查是否有 stdin 输入
+            use std::io::IsTerminal;
+            use std::io::BufRead;
+            
+            if !std::io::stdin().is_terminal() {
+                let window = app.get_window("main").unwrap();
+                let window_clone = window.clone();
+                
+                std::thread::spawn(move || {
+                    let stdin = std::io::stdin();
+                    let mut reader = stdin.lock();
+                    
+                    // 等待窗口准备好 (简单延迟，实际生产环境应该用事件握手)
+                    std::thread::sleep(std::time::Duration::from_millis(1000));
+                    
+                    let mut lines_batch = Vec::new();
+                    let mut last_send = std::time::Instant::now();
+                    
+                    for line in reader.lines() {
+                        if let Ok(l) = line {
+                            // 构造简单的 LogEntry
+                            let entry = crate::plugins::LogEntry {
+                                line_number: 0,
+                                content: l.clone(),
+                                timestamp: None,
+                                level: None,
+                                formatted_content: Some(l),
+                                metadata: std::collections::HashMap::new(),
+                                processed_by: vec!["stdin".to_string()],
+                            };
+                            lines_batch.push(entry);
+                            
+                            // 每 100ms 或 100 行发送一次
+                            if lines_batch.len() >= 100 || last_send.elapsed().as_millis() > 100 {
+                                if !lines_batch.is_empty() {
+                                    if let Err(e) = window_clone.emit("tail-update", &lines_batch) {
+                                        error!("❌ Stdin 发送失败: {}", e);
+                                    }
+                                    lines_batch.clear();
+                                    last_send = std::time::Instant::now();
+                                }
+                            }
+                        }
+                    }
+                    
+                    // 发送剩余的
+                    if !lines_batch.is_empty() {
+                        let _ = window_clone.emit("tail-update", &lines_batch);
+                    }
+                });
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             // 系统管理命令
             health_check,
@@ -1973,7 +2031,11 @@ async fn main() {
 
             // Tail 命令
             tail::start_tail,
-            tail::stop_tail
+            tail::stop_tail,
+            
+            // Journald 命令
+            journald::start_journal_tail,
+            journald::stop_journal_tail
         ])
         .run(tauri::generate_context!())
         .expect("🔥 Tauri应用运行失败，请检查配置");
